@@ -183,12 +183,18 @@
     );
     background-size: 16px 16px;
   }
-  /* CodeMirror sizing: fill the parent and use our mono font. */
+  /* CodeMirror sizing: the wrapper @uiw/react-codemirror renders has no height of
+     its own, so it must fill the container for the editor to get a fixed height
+     and therefore a scrollbar (CodeMirror only scrolls when .cm-editor is bounded). */
+  .studio-editor > div {
+    height: 100%;
+  }
   .studio-editor .cm-editor {
     height: 100%;
     font-size: 13px;
   }
   .studio-editor .cm-scroller {
+    overflow: auto;
     font-family: var(--font-mono);
     line-height: 1.55;
   }

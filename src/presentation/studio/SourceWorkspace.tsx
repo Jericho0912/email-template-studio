@@ -84,7 +84,7 @@ export function SourceWorkspace({
             onChange={onSourceChange}
             language="tsx"
             label={`Template source for ${template.metadata.fileName}`}
-            className="h-[440px]"
+            className="h-[520px]"
           />
         </TabsContent>
         <TabsContent value="html" className="flex min-h-0 flex-1 flex-col">
@@ -93,7 +93,7 @@ export function SourceWorkspace({
             language="html"
             label="Rendered HTML (read only)"
             readOnly
-            className="h-[440px]"
+            className="h-[520px]"
           />
         </TabsContent>
 
