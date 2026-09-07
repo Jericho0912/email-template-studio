@@ -171,6 +171,17 @@ function SendTestEmailForm({
         </dd>
       </dl>
 
+      {status?.connected && status.preflight ? (
+        <p
+          role="status"
+          className={
+            status.preflight.ok ? 'text-muted-foreground text-xs' : 'text-warning-foreground text-xs'
+          }
+        >
+          {status.preflight.message}
+        </p>
+      ) : null}
+
       {outcome ? (
         outcome.status === 'sent' ? (
           <Alert role="status">

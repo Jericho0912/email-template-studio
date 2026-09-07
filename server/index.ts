@@ -28,12 +28,16 @@ function main(): void {
   const app = createApp({ config, sender })
   serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
     const base = `http://127.0.0.1:${info.port}`
-    if (config.enabled) {
+    if (config.enabled && sender) {
       console.log(
-        `Send server listening on ${base}\n  mode: ${sender?.mode}\n  region: ${config.region}\n  from: ${config.from}\n  allowed recipients: ${config.allowedRecipients.join(', ')}\n  rate limit: ${config.rateLimitPerMinute}/min`,
+        `Send server listening on ${base}\n  mode: ${sender.mode}\n  region: ${config.region}\n  from: ${config.from}\n  allowed recipients: ${config.allowedRecipients.join(', ')}\n  rate limit: ${config.rateLimitPerMinute}/min`,
       )
+      void sender.preflight(config.from).then((result) => {
+        console.log(`  preflight: ${result.ok ? 'OK' : 'PROBLEM'} - ${result.message}`)
+      })
     } else {
-      console.log(`Send server listening on ${base} with sending DISABLED (${config.reason})`)
+      const reason = config.enabled ? 'no sender configured' : config.reason
+      console.log(`Send server listening on ${base} with sending DISABLED (${reason})`)
     }
   })
 }

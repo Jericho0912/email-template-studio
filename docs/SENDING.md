@@ -34,7 +34,7 @@ npm run server      # send server, reads .env; prints mode/from/recipients on st
 npm run dev         # the studio
 ```
 
-5. In the studio: select a template, open **Send test email**, pick a recipient, press **Send test**. The dialog shows the SES message id.
+5. In the studio: select a template, open **Send test email**, check the preflight line (sender verified, sandbox or not), pick a recipient, press **Send test**. The dialog shows the SES message id.
 
 Rehearse without sending: `npm run server:dry-run`.
 

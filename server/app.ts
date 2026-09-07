@@ -10,7 +10,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { SendServerConfig } from './config.ts'
-import type { EmailSender } from './emailSender.ts'
+import type { EmailSender, SenderPreflight } from './emailSender.ts'
 
 export const MAX_HTML_BYTES = 500 * 1024
 export const TEST_SUBJECT_PREFIX = '[TEST] '
@@ -31,11 +31,15 @@ export interface AppDependencies {
   readonly now?: () => number
 }
 
+/** How long a preflight result is reused before SES is asked again. */
+export const PREFLIGHT_CACHE_MS = 60_000
+
 export function createApp({ config, sender, now = () => Date.now() }: AppDependencies) {
   const app = new Hono()
   const limiter = createRateLimiter(config.enabled ? config.rateLimitPerMinute : 0, now)
+  const preflight = createPreflightCache(config, sender, now)
 
-  app.get('/api/send-test/status', (c) => {
+  app.get('/api/send-test/status', async (c) => {
     if (!config.enabled) {
       return c.json({ enabled: false as const, provider: 'amazon-ses', reason: config.reason })
     }
@@ -47,6 +51,7 @@ export function createApp({ config, sender, now = () => Date.now() }: AppDepende
       allowedRecipients: config.allowedRecipients,
       region: config.region,
       rateLimitPerMinute: config.rateLimitPerMinute,
+      preflight: await preflight(),
     })
   })
 
@@ -153,5 +158,17 @@ export function createRateLimiter(limit: number, now: () => number) {
       stamps.push(now())
       return true
     },
+  }
+}
+
+/** Runs the sender's read-only preflight at most once per cache window. */
+function createPreflightCache(config: SendServerConfig, sender: EmailSender | null, now: () => number) {
+  let cached: { at: number; result: Promise<SenderPreflight> } | null = null
+  return (): Promise<SenderPreflight> => {
+    if (!config.enabled || sender === null)
+      return Promise.resolve({ ok: false, message: 'Sending is disabled.' })
+    if (cached && now() - cached.at < PREFLIGHT_CACHE_MS) return cached.result
+    cached = { at: now(), result: sender.preflight(config.from) }
+    return cached.result
   }
 }

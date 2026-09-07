@@ -18,6 +18,13 @@ export interface OutgoingTestEmail {
   readonly templateId: string
 }
 
+export interface ProviderPreflight {
+  readonly ok: boolean
+  readonly message: string
+  readonly sandbox?: boolean
+  readonly identityVerified?: boolean
+}
+
 export type ProviderStatus =
   | { readonly connected: false; readonly reason: string }
   | {
@@ -27,6 +34,7 @@ export type ProviderStatus =
       readonly from: string
       readonly allowedRecipients: readonly string[]
       readonly region: string
+      readonly preflight?: ProviderPreflight
     }
 
 export type SendOutcome =
@@ -76,6 +84,14 @@ const statusSchema = z.union([
     from: z.string(),
     allowedRecipients: z.array(z.string()),
     region: z.string(),
+    preflight: z
+      .object({
+        ok: z.boolean(),
+        message: z.string(),
+        sandbox: z.boolean().optional(),
+        identityVerified: z.boolean().optional(),
+      })
+      .optional(),
   }),
 ])
 
@@ -120,8 +136,8 @@ export class HttpTestEmailProvider implements EmailProvider {
     if (!parsed.success)
       return { connected: false, reason: 'The send server returned an unexpected status response.' }
     if (!parsed.data.enabled) return { connected: false, reason: parsed.data.reason }
-    const { provider, mode, from, allowedRecipients, region } = parsed.data
-    return { connected: true, provider, mode, from, allowedRecipients, region }
+    const { provider, mode, from, allowedRecipients, region, preflight } = parsed.data
+    return { connected: true, provider, mode, from, allowedRecipients, region, preflight }
   }
 
   async send(email: OutgoingTestEmail): Promise<SendOutcome> {

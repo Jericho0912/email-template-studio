@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createApp, createRateLimiter, MAX_HTML_BYTES, TEST_SUBJECT_PREFIX } from './app.ts'
+import {
+  createApp,
+  createRateLimiter,
+  MAX_HTML_BYTES,
+  PREFLIGHT_CACHE_MS,
+  TEST_SUBJECT_PREFIX,
+} from './app.ts'
 import type { SendServerConfig } from './config.ts'
 import { createDryRunSender, type EmailSender } from './emailSender.ts'
 
@@ -49,6 +55,7 @@ describe('send server API', () => {
       allowedRecipients: ['qa@example.com'],
       region: 'us-east-1',
       rateLimitPerMinute: 2,
+      preflight: { ok: true, message: 'Dry run: no AWS calls are made.' },
     })
   })
 
@@ -88,6 +95,9 @@ describe('send server API', () => {
         sent.push(email)
         return { messageId: 'ses-123' }
       },
+      async preflight() {
+        return { ok: true, message: 'fake' }
+      },
     }
     const app = createApp({ config: enabledConfig, sender, now: () => 1_700_000_000_000 })
     const response = await post(app, { ...validBody, subject: 'Verify your email' })
@@ -118,6 +128,9 @@ describe('send server API', () => {
       send: vi.fn(async () => {
         throw new Error('Email address is not verified')
       }),
+      async preflight() {
+        return { ok: false, message: 'unverified' }
+      },
     }
     const app = createApp({ config: enabledConfig, sender })
     const response = await post(app, validBody)
@@ -133,6 +146,30 @@ describe('send server API', () => {
     expect((await post(app, validBody)).status).toBe(429)
     clock += 61_000
     expect((await post(app, validBody)).status).toBe(200)
+  })
+})
+
+describe('preflight caching', () => {
+  it('asks the sender once per cache window', async () => {
+    let clock = 0
+    let calls = 0
+    const sender: EmailSender = {
+      mode: 'live',
+      async send() {
+        return { messageId: 'x' }
+      },
+      async preflight() {
+        calls += 1
+        return { ok: true, message: `call ${calls}` }
+      },
+    }
+    const app = createApp({ config: enabledConfig, sender, now: () => clock })
+    await app.request('/api/send-test/status')
+    await app.request('/api/send-test/status')
+    expect(calls).toBe(1)
+    clock += PREFLIGHT_CACHE_MS + 1
+    await app.request('/api/send-test/status')
+    expect(calls).toBe(2)
   })
 })
 
