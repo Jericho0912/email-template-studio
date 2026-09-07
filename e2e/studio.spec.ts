@@ -214,7 +214,7 @@ test('send test email goes through the local send server (dry run) and publish s
   await page.getByRole('button', { name: 'Send test email' }).click()
   const sendDialog = page.getByRole('dialog', { name: 'Send test email' })
   await expect(sendDialog.getByText('Connected')).toBeVisible()
-  await expect(sendDialog.getByText('Dry run')).toBeVisible()
+  await expect(sendDialog.getByText('Dry run', { exact: true })).toBeVisible()
   await expect(sendDialog.getByText('studio@example.test')).toBeVisible()
   await expect(sendDialog.getByRole('combobox')).toContainText('qa@example.test')
 

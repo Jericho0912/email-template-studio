@@ -8,7 +8,8 @@
  */
 import { z } from 'zod'
 
-const flag = z.enum(['true', 'false']).default('false')
+/** Only the literal string "true" enables; anything else (including junk) disables. */
+const flag = z.string().optional()
 
 const envSchema = z.object({
   STUDIO_SEND_ENABLED: flag,
@@ -41,7 +42,11 @@ export class ConfigError extends Error {}
 
 /** Parses process.env-like input. Throws ConfigError for an enabled but incomplete setup (fail fast). */
 export function loadConfig(env: Record<string, string | undefined>): SendServerConfig {
-  const parsed = envSchema.safeParse(env)
+  // `KEY=` in a .env file arrives as an empty string; treat it as unset.
+  const cleaned = Object.fromEntries(
+    Object.entries(env).filter(([, value]) => value !== undefined && value.trim() !== ''),
+  )
+  const parsed = envSchema.safeParse(cleaned)
   if (!parsed.success) {
     const detail = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')
     throw new ConfigError(`Invalid send-server environment: ${detail}`)
@@ -76,12 +81,23 @@ export function loadConfig(env: Record<string, string | undefined>): SendServerC
   }
 }
 
+/** Splits the comma list, keeps original spelling, dedupes case-insensitively, rejects invalid entries loudly. */
 export function parseRecipients(raw: string | undefined): string[] {
   if (!raw) return []
-  const unique = new Set<string>()
+  const byLowerCase = new Map<string, string>()
+  const invalid: string[] = []
   for (const part of raw.split(',')) {
-    const address = part.trim().toLowerCase()
-    if (address && z.email().safeParse(address).success) unique.add(address)
+    const address = part.trim()
+    if (!address) continue
+    if (!z.email().safeParse(address).success) {
+      invalid.push(address)
+      continue
+    }
+    const key = address.toLowerCase()
+    if (!byLowerCase.has(key)) byLowerCase.set(key, address)
   }
-  return [...unique]
+  if (invalid.length > 0) {
+    throw new ConfigError(`SES_ALLOWED_RECIPIENTS contains invalid addresses: ${invalid.join(', ')}`)
+  }
+  return [...byLowerCase.values()]
 }

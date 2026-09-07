@@ -14,10 +14,20 @@ import type { EmailSender, SenderPreflight } from './emailSender.ts'
 
 export const MAX_HTML_BYTES = 500 * 1024
 export const TEST_SUBJECT_PREFIX = '[TEST] '
+/** Custom header the browser must send; browsers only allow it after a CORS preflight, which this server never grants. */
+export const STUDIO_REQUEST_HEADER = 'x-studio-send'
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
 
 const sendRequestSchema = z.object({
   to: z.email(),
-  subject: z.string().trim().min(1).max(200),
+  subject: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    // Header-safe: no control characters (CR/LF would be a header injection in raw MIME).
+    // eslint-disable-next-line no-control-regex
+    .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), 'Subject must not contain control characters'),
   html: z.string().min(1),
   templateId: z.string().min(1).max(100),
 })
@@ -38,6 +48,14 @@ export function createApp({ config, sender, now = () => Date.now() }: AppDepende
   const app = new Hono()
   const limiter = createRateLimiter(config.enabled ? config.rateLimitPerMinute : 0, now)
   const preflight = createPreflightCache(config, sender, now)
+
+  // Same-machine only. Rejects DNS-rebinding (foreign Host) and cross-site
+  // browser requests (foreign Origin) even though the socket is loopback-bound.
+  app.use('/api/*', async (c, next) => {
+    const problem = rejectForeignRequest(c.req.header('host'), c.req.header('origin'))
+    if (problem) return c.json({ status: 'error', code: 'forbidden-origin', message: problem }, 403)
+    await next()
+  })
 
   app.get('/api/send-test/status', async (c) => {
     if (!config.enabled) {
@@ -67,6 +85,20 @@ export function createApp({ config, sender, now = () => Date.now() }: AppDepende
       )
     }
 
+    // Both checks force a CORS preflight for cross-site callers; the server never answers OPTIONS, so browsers refuse.
+    if (!c.req.header('content-type')?.toLowerCase().startsWith('application/json')) {
+      return c.json(
+        { status: 'error', code: 'invalid-request', message: 'Content-Type must be application/json.' },
+        415,
+      )
+    }
+    if (c.req.header(STUDIO_REQUEST_HEADER) !== '1') {
+      return c.json(
+        { status: 'error', code: 'invalid-request', message: `Missing ${STUDIO_REQUEST_HEADER} header.` },
+        400,
+      )
+    }
+
     let body: unknown
     try {
       body = await c.req.json()
@@ -86,8 +118,9 @@ export function createApp({ config, sender, now = () => Date.now() }: AppDepende
     }
     const request = parsed.data
 
-    const to = request.to.toLowerCase()
-    if (!config.allowedRecipients.includes(to)) {
+    // Compare case-insensitively but send to the exact spelling from the allow-list.
+    const to = config.allowedRecipients.find((address) => address.toLowerCase() === request.to.toLowerCase())
+    if (to === undefined) {
       return c.json(
         {
           status: 'error',
@@ -120,11 +153,14 @@ export function createApp({ config, sender, now = () => Date.now() }: AppDepende
       )
     }
 
-    const subject = request.subject.startsWith(TEST_SUBJECT_PREFIX)
+    const subject = /^\[TEST\]/i.test(request.subject)
       ? request.subject
       : `${TEST_SUBJECT_PREFIX}${request.subject}`
     try {
       const receipt = await sender.send({ from: config.from, to, subject, html: request.html })
+      console.log(
+        `[send-test] ${sender.mode} "${subject}" -> ${to} (template ${request.templateId}) message ${receipt.messageId}`,
+      )
       return c.json({
         status: 'sent',
         mode: sender.mode,
@@ -136,9 +172,13 @@ export function createApp({ config, sender, now = () => Date.now() }: AppDepende
         sentAt: new Date(now()).toISOString(),
       })
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      console.error('[send-test] provider error', error)
       return c.json(
-        { status: 'error', code: 'provider-error', message: `Amazon SES rejected the send: ${message}` },
+        {
+          status: 'error',
+          code: 'provider-error',
+          message: `Send failed: ${describeProviderError(error)}`,
+        },
         502,
       )
     }
@@ -168,7 +208,42 @@ function createPreflightCache(config: SendServerConfig, sender: EmailSender | nu
     if (!config.enabled || sender === null)
       return Promise.resolve({ ok: false, message: 'Sending is disabled.' })
     if (cached && now() - cached.at < PREFLIGHT_CACHE_MS) return cached.result
-    cached = { at: now(), result: sender.preflight(config.from) }
-    return cached.result
+    const result = sender.preflight(config.from)
+    cached = { at: now(), result }
+    // Do not cache failures: a fixed credential or identity should show up on the next check.
+    void result.then((outcome) => {
+      if (!outcome.ok) cached = null
+    })
+    return result
   }
+}
+
+/** Returns a reason to refuse, or null when Host and Origin (if present) are local. */
+export function rejectForeignRequest(host: string | undefined, origin: string | undefined): string | null {
+  if (!host || !LOCAL_HOSTNAMES.has(hostnameOf(host)))
+    return 'Requests are only accepted from this machine (Host must be localhost).'
+  // `Origin: null` comes from opaque contexts (sandboxed iframes, file: pages); nothing legitimate uses it here.
+  if (origin) {
+    let originHost: string
+    try {
+      originHost = new URL(origin).hostname
+    } catch {
+      return 'Origin header is not a valid URL.'
+    }
+    if (!LOCAL_HOSTNAMES.has(originHost)) return 'Cross-site requests are not accepted.'
+  }
+  return null
+}
+
+function hostnameOf(hostHeader: string): string {
+  // "localhost:8787", "127.0.0.1:8787" or "[::1]:8787"
+  const bracketed = /^(\[[^\]]+\])(?::\d+)?$/.exec(hostHeader)
+  if (bracketed) return bracketed[1]
+  return hostHeader.replace(/:\d+$/, '').toLowerCase()
+}
+
+/** One line, bounded length: enough for a developer to act on, no stack traces. */
+function describeProviderError(error: unknown): string {
+  const raw = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+  return raw.replace(/\s+/g, ' ').slice(0, 300)
 }

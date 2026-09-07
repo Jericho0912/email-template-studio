@@ -66,6 +66,14 @@ describe('HttpTestEmailProvider', () => {
     expect(await sendProvider.send(email)).toMatchObject({ status: 'not-sent', code: 'unexpected-response' })
   })
 
+  it('treats a non-JSON 5xx from the proxy as the server being down', async () => {
+    const html = vi.fn(
+      async () => new Response('<html>502</html>', { status: 502 }),
+    ) as unknown as typeof fetch
+    const provider = new HttpTestEmailProvider('/api/send-test', html)
+    expect(await provider.send(email)).toMatchObject({ status: 'not-sent', code: 'server-unreachable' })
+  })
+
   it('returns sent outcomes and server errors', async () => {
     const ok = new HttpTestEmailProvider(
       '/api/send-test',
@@ -80,6 +88,11 @@ describe('HttpTestEmailProvider', () => {
       }),
     )
     expect(await ok.send(email)).toMatchObject({ status: 'sent', messageId: 'dry-run-1' })
+    const [, init] = (ok as unknown as { fetchImpl: ReturnType<typeof vi.fn> }).fetchImpl.mock.calls[0] as [
+      string,
+      RequestInit,
+    ]
+    expect(new Headers(init.headers).get('x-studio-send')).toBe('1')
     const refused = new HttpTestEmailProvider(
       '/api/send-test',
       fetchReturning(403, { status: 'error', code: 'recipient-not-allowed', message: 'no' }),

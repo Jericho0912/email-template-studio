@@ -86,7 +86,9 @@ function SendTestEmailForm({
   const status = phase.kind === 'loading' ? null : phase.status
   const connected = status?.connected === true
   const subject = template.metadata.subject
-  const canSend = connected && html !== null && recipient !== '' && phase.kind === 'ready'
+  const senderKnownUnverified = status?.connected === true && status.preflight?.identityVerified === false
+  const canSend =
+    connected && !senderKnownUnverified && html !== null && recipient !== '' && phase.kind === 'ready'
   const htmlKilobytes = html === null ? null : (new TextEncoder().encode(html).length / 1024).toFixed(1)
 
   async function send() {
@@ -95,12 +97,15 @@ function SendTestEmailForm({
     const result = await provider.send({ to: recipient, subject, html, templateId: template.metadata.id })
     setOutcome(result)
     setPhase({ kind: 'ready', status })
+    // Toasts survive closing the dialog, so a failure is never silently lost.
     if (result.status === 'sent') {
       toast.success(
         result.mode === 'dry-run'
           ? `Dry run complete (${result.messageId}). Nothing was sent.`
           : `Test email sent to ${result.to}.`,
       )
+    } else {
+      toast.error(result.message)
     }
   }
 

@@ -145,7 +145,8 @@ export class HttpTestEmailProvider implements EmailProvider {
     try {
       response = await this.fetchImpl(this.baseUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        // The custom header is required by the server; cross-site pages cannot send it without a CORS preflight.
+        headers: { 'content-type': 'application/json', accept: 'application/json', 'x-studio-send': '1' },
         body: JSON.stringify(email),
       })
     } catch {
@@ -153,6 +154,9 @@ export class HttpTestEmailProvider implements EmailProvider {
     }
     const parsed = sendResponseSchema.safeParse(await response.json().catch(() => null))
     if (!parsed.success) {
+      // The Vite proxy answers 5xx with an HTML page when the send server is down.
+      if (response.status >= 500)
+        return { status: 'not-sent', code: 'server-unreachable', message: SERVER_NOT_RUNNING_REASON }
       return {
         status: 'not-sent',
         code: 'unexpected-response',

@@ -21,7 +21,7 @@ describe('loadConfig', () => {
       STUDIO_SEND_DRY_RUN: 'true',
       AWS_REGION: 'us-east-1',
       SES_FROM_ADDRESS: 'sender@example.com',
-      SES_ALLOWED_RECIPIENTS: 'One@Example.com, two@example.com, not-an-email',
+      SES_ALLOWED_RECIPIENTS: 'One@Example.com, two@example.com, one@example.com',
       STUDIO_SERVER_PORT: '9000',
       STUDIO_SEND_RATE_LIMIT_PER_MINUTE: '2',
     })
@@ -31,7 +31,7 @@ describe('loadConfig', () => {
       dryRun: true,
       region: 'us-east-1',
       from: 'sender@example.com',
-      allowedRecipients: ['one@example.com', 'two@example.com'],
+      allowedRecipients: ['One@Example.com', 'two@example.com'],
       configurationSet: undefined,
       rateLimitPerMinute: 2,
     })
@@ -50,8 +50,16 @@ describe('loadConfig', () => {
 })
 
 describe('parseRecipients', () => {
-  it('normalises, dedupes and drops junk', () => {
-    expect(parseRecipients(' A@x.io ,a@x.io,, b@y.io ,junk')).toEqual(['a@x.io', 'b@y.io'])
+  it('keeps spelling, dedupes case-insensitively and rejects junk loudly', () => {
+    expect(parseRecipients(' A@x.io ,a@x.io,, b@y.io ')).toEqual(['A@x.io', 'b@y.io'])
     expect(parseRecipients(undefined)).toEqual([])
+    expect(() => parseRecipients('a@x.io, junk')).toThrow(/invalid addresses: junk/)
+  })
+})
+
+describe('loadConfig edge cases', () => {
+  it('treats empty values as unset and only the literal "true" as enabled', () => {
+    expect(loadConfig({ STUDIO_SEND_ENABLED: 'yes', SES_FROM_ADDRESS: '' }).enabled).toBe(false)
+    expect(loadConfig({ STUDIO_SEND_ENABLED: 'false', SES_FROM_ADDRESS: '   ' }).enabled).toBe(false)
   })
 })

@@ -22,7 +22,8 @@ export default defineConfig({
       command:
         'STUDIO_SEND_SERVER_URL=http://127.0.0.1:8790 npm run build && STUDIO_SEND_SERVER_URL=http://127.0.0.1:8790 npx vite preview --port 4173 --strictPort',
       url: 'http://localhost:4173',
-      reuseExistingServer: !process.env.CI,
+      // Never reuse: a stray preview could be proxying to a LIVE send server.
+      reuseExistingServer: false,
       timeout: 120_000,
     },
     {
@@ -30,7 +31,7 @@ export default defineConfig({
       command:
         'STUDIO_SEND_ENABLED=true STUDIO_SEND_DRY_RUN=true AWS_REGION=us-east-1 SES_FROM_ADDRESS=studio@example.test SES_ALLOWED_RECIPIENTS=qa@example.test,second@example.test STUDIO_SERVER_PORT=8790 node --env-file-if-exists=/dev/null server/index.ts',
       url: 'http://127.0.0.1:8790/api/send-test/status',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 30_000,
     },
   ],

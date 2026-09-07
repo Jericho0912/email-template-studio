@@ -19,6 +19,12 @@ Browser (Vite, :5173) ──/api──▶ send server (Node, 127.0.0.1:8787) ─
 | Dry run               | `STUDIO_SEND_DRY_RUN=true` | Full path, no AWS call, `dry-run-N` message ids.                                       |
 | Credentials           | AWS SDK                    | Read by the SDK from `AWS_PROFILE` / `~/.aws` or `AWS_*` env vars; never by this code. |
 
+## Notes
+
+- Changing `STUDIO_SERVER_PORT` in `.env` is picked up by both the server and the Vite proxy (restart `npm run dev`).
+- Do not run Vite with `--host` while the send server is enabled: the proxy would let other machines on your network reach the server (their requests still need a localhost `Origin`, but do not rely on that).
+- Requires Node 22.18 or newer (`--env-file-if-exists` and running TypeScript directly).
+
 ## Setup
 
 1. Verify a sender identity in SES (an email address or a domain) in the region you will use. Identities are **per region**.
@@ -43,7 +49,7 @@ Rehearse without sending: `npm run server:dry-run`.
 ```bash
 curl -s http://127.0.0.1:8787/api/send-test/status
 curl -s -X POST http://127.0.0.1:8787/api/send-test \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H 'x-studio-send: 1' \
   -d '{"to":"you@example.com","subject":"Hello","html":"<p>Hi</p>","templateId":"manual"}'
 ```
 

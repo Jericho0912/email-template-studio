@@ -4,6 +4,8 @@ import {
   createRateLimiter,
   MAX_HTML_BYTES,
   PREFLIGHT_CACHE_MS,
+  rejectForeignRequest,
+  STUDIO_REQUEST_HEADER,
   TEST_SUBJECT_PREFIX,
 } from './app.ts'
 import type { SendServerConfig } from './config.ts'
@@ -26,10 +28,20 @@ const validBody = {
   templateId: 'welcome-verification',
 }
 
-function post(app: ReturnType<typeof createApp>, body: unknown) {
+const LOCAL_HEADERS = {
+  'content-type': 'application/json',
+  host: '127.0.0.1:8787',
+  [STUDIO_REQUEST_HEADER]: '1',
+}
+
+function post(
+  app: ReturnType<typeof createApp>,
+  body: unknown,
+  headers: Record<string, string> = LOCAL_HEADERS,
+) {
   return app.request('/api/send-test', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: typeof body === 'string' ? body : JSON.stringify(body),
   })
 }
@@ -37,7 +49,7 @@ function post(app: ReturnType<typeof createApp>, body: unknown) {
 describe('send server API', () => {
   it('reports a disabled server and refuses to send', async () => {
     const app = createApp({ config: { enabled: false, port: 8787, reason: 'off' }, sender: null })
-    const status = await app.request('/api/send-test/status')
+    const status = await app.request('/api/send-test/status', { headers: { host: 'localhost:8787' } })
     expect(await status.json()).toEqual({ enabled: false, provider: 'amazon-ses', reason: 'off' })
     const response = await post(app, validBody)
     expect(response.status).toBe(503)
@@ -46,7 +58,9 @@ describe('send server API', () => {
 
   it('reports an enabled server without leaking anything but from/recipients/region', async () => {
     const app = createApp({ config: enabledConfig, sender: createDryRunSender(() => {}) })
-    const body = await (await app.request('/api/send-test/status')).json()
+    const body = await (
+      await app.request('/api/send-test/status', { headers: { host: 'localhost:8787' } })
+    ).json()
     expect(body).toEqual({
       enabled: true,
       provider: 'amazon-ses',
@@ -78,6 +92,7 @@ describe('send server API', () => {
     expect(await refused.json()).toMatchObject({ code: 'recipient-not-allowed' })
     const accepted = await post(app, { ...validBody, to: 'QA@example.com' })
     expect(accepted.status).toBe(200)
+    // Sent to the allow-list's spelling, not the caller's.
     expect(await accepted.json()).toMatchObject({ to: 'qa@example.com' })
   })
 
@@ -135,7 +150,10 @@ describe('send server API', () => {
     const app = createApp({ config: enabledConfig, sender })
     const response = await post(app, validBody)
     expect(response.status).toBe(502)
-    expect(await response.json()).toMatchObject({ code: 'provider-error', message: /not verified/ })
+    expect(await response.json()).toMatchObject({
+      code: 'provider-error',
+      message: /Send failed: Error: Email address is not verified/,
+    })
   })
 
   it('rate limits per minute', async () => {
@@ -146,6 +164,73 @@ describe('send server API', () => {
     expect((await post(app, validBody)).status).toBe(429)
     clock += 61_000
     expect((await post(app, validBody)).status).toBe(200)
+  })
+})
+
+describe('same-machine guards', () => {
+  const app = () => createApp({ config: enabledConfig, sender: createDryRunSender(() => {}) })
+
+  it('rejects foreign Host headers (DNS rebinding) on every route', async () => {
+    const status = await app().request('/api/send-test/status', { headers: { host: 'evil.example:8787' } })
+    expect(status.status).toBe(403)
+    expect((await post(app(), validBody, { ...LOCAL_HEADERS, host: 'evil.example' })).status).toBe(403)
+  })
+
+  it('rejects cross-site Origins even from a local Host', async () => {
+    const response = await post(app(), validBody, { ...LOCAL_HEADERS, origin: 'https://attacker.example' })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'forbidden-origin' })
+    const viaVite = await post(app(), validBody, {
+      ...LOCAL_HEADERS,
+      host: 'localhost:5173',
+      origin: 'http://localhost:5173',
+    })
+    expect(viaVite.status).toBe(200)
+  })
+
+  it('requires a JSON content type and the studio header (both force a CORS preflight)', async () => {
+    const plain = await post(app(), validBody, {
+      host: '127.0.0.1:8787',
+      'content-type': 'text/plain',
+      [STUDIO_REQUEST_HEADER]: '1',
+    })
+    expect(plain.status).toBe(415)
+    const noHeader = await post(app(), validBody, {
+      host: '127.0.0.1:8787',
+      'content-type': 'application/json',
+    })
+    expect(noHeader.status).toBe(400)
+  })
+
+  it('does not double an existing [TEST] prefix, whatever its spacing', async () => {
+    const sent: string[] = []
+    const sender: EmailSender = {
+      mode: 'live',
+      async send(email) {
+        sent.push(email.subject)
+        return { messageId: 'x' }
+      },
+      async preflight() {
+        return { ok: true, message: 'fake' }
+      },
+    }
+    const app = createApp({ config: enabledConfig, sender })
+    await post(app, { ...validBody, subject: '[TEST]Already' })
+    await post(app, { ...validBody, subject: '[test] lower' })
+    expect(sent).toEqual(['[TEST]Already', '[test] lower'])
+  })
+
+  it('rejects subjects with control characters', async () => {
+    const response = await post(app(), { ...validBody, subject: 'Hi\r\nBcc: x@y.z' })
+    expect(response.status).toBe(400)
+  })
+
+  it('rejectForeignRequest understands ports and IPv6 hosts', () => {
+    expect(rejectForeignRequest('localhost:8787', undefined)).toBeNull()
+    expect(rejectForeignRequest('[::1]:8787', 'http://localhost:5173')).toBeNull()
+    expect(rejectForeignRequest(undefined, undefined)).toMatch(/Host/)
+    expect(rejectForeignRequest('127.0.0.1', 'not a url')).toMatch(/Origin/)
+    expect(rejectForeignRequest('127.0.0.1:8787', 'null')).toMatch(/Origin/)
   })
 })
 
@@ -164,11 +249,12 @@ describe('preflight caching', () => {
       },
     }
     const app = createApp({ config: enabledConfig, sender, now: () => clock })
-    await app.request('/api/send-test/status')
-    await app.request('/api/send-test/status')
+    const local = { headers: { host: 'localhost:8787' } }
+    await app.request('/api/send-test/status', local)
+    await app.request('/api/send-test/status', local)
     expect(calls).toBe(1)
     clock += PREFLIGHT_CACHE_MS + 1
-    await app.request('/api/send-test/status')
+    await app.request('/api/send-test/status', local)
     expect(calls).toBe(2)
   })
 })

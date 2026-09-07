@@ -63,5 +63,8 @@
     "vite": "^8.2.2",
     "vitest": "^5.0.0"
   },
-  "description": "Internal Email Template Studio MVP: edit React Email templates and preview them locally. No email is sent."
+  "description": "Internal Email Template Studio MVP: edit React Email templates and preview them locally. No email is sent.",
+  "engines": {
+    "node": ">=22.18"
+  }
 }

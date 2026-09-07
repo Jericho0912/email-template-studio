@@ -26,7 +26,7 @@ function main(): void {
       : createSesSender({ region: config.region, configurationSet: config.configurationSet })
 
   const app = createApp({ config, sender })
-  serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
+  const server = serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
     const base = `http://127.0.0.1:${info.port}`
     if (config.enabled && sender) {
       console.log(
@@ -39,6 +39,15 @@ function main(): void {
       const reason = config.enabled ? 'no sender configured' : config.reason
       console.log(`Send server listening on ${base} with sending DISABLED (${reason})`)
     }
+  })
+  server.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(
+        `\nPort ${config.port} is already in use. Stop the other process or set STUDIO_SERVER_PORT in .env (the Vite proxy follows it).\n`,
+      )
+      process.exit(1)
+    }
+    throw error
   })
 }
 
