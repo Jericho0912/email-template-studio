@@ -97,4 +97,9 @@ stateDiagram-v2
 
 ## Email provider boundary
 
-`infrastructure/providers/emailProvider.ts` declares `EmailProvider` and ships `NoSendEmailProvider` (`canSend: false`). The Send test email dialog reads `provider.canSend` to decide whether the action is enabled, so a future provider (running on a server, never in the browser) plugs in without UI changes. **No provider in this repository may send email until the milestone that introduces one is explicitly started.**
+`infrastructure/providers/emailProvider.ts` declares `EmailProvider` with `getStatus()` and `send()`. Two implementations exist:
+
+- `HttpTestEmailProvider` (default): calls the local send server through the `/api` proxy and validates every response with Zod. When the server is absent or disabled it reports `connected: false` with a reason, and the dialog keeps the action disabled.
+- `NoSendEmailProvider`: never connected; used in tests.
+
+The send server (`server/`, Node + Hono) owns the SES call, the recipient allow-list, the `[TEST]` prefix, the rate limit and the dry-run mode. Credentials are resolved by the AWS SDK from the developer's profile; the repository never reads them. Details in `docs/SENDING.md`.

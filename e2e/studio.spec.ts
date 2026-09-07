@@ -64,6 +64,26 @@ test('renders the default template in the isolated preview frame', async ({ page
   )
 })
 
+test('the source editor scrolls inside a bounded height', async ({ page }) => {
+  const scroller = sourcePanel(page).locator('.cm-scroller').first()
+  await expect(scroller).toBeVisible()
+  const metrics = await scroller.evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }))
+  expect(metrics.clientHeight).toBeLessThan(700)
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+  expect(['auto', 'scroll']).toContain(metrics.overflowY)
+
+  await scroller.evaluate((element) => element.scrollTo({ top: 10_000 }))
+  const scrollTop = await scroller.evaluate((element) => element.scrollTop)
+  expect(scrollTop).toBeGreaterThan(200)
+  await expect(page.getByLabel(WELCOME_SOURCE_LABEL)).toContainText(
+    'satisfies Record<string, React.CSSProperties>',
+  )
+})
+
 test('payload edits update the preview and are validated separately from JSON syntax', async ({ page }) => {
   await expect(previewBody(page)).toContainText('Welcome, Ada', { timeout: 15_000 })
 
@@ -186,13 +206,22 @@ test('device toggle changes the preview viewport', async ({ page }) => {
   await expect(page.getByRole('radio', { name: 'Mobile preview' })).toHaveAttribute('aria-checked', 'true')
 })
 
-test('send test email and publish are clearly non-functional', async ({ page }) => {
+test('send test email goes through the local send server (dry run) and publish stays simulated', async ({
+  page,
+}) => {
   await expect(previewBody(page)).toContainText('Welcome, Ada', { timeout: 15_000 })
 
   await page.getByRole('button', { name: 'Send test email' }).click()
   const sendDialog = page.getByRole('dialog', { name: 'Send test email' })
-  await expect(sendDialog.getByText('Sending is disabled', { exact: true })).toBeVisible()
-  await expect(sendDialog.getByRole('button', { name: /Send test/ })).toBeDisabled()
+  await expect(sendDialog.getByText('Connected')).toBeVisible()
+  await expect(sendDialog.getByText('Dry run')).toBeVisible()
+  await expect(sendDialog.getByText('studio@example.test')).toBeVisible()
+  await expect(sendDialog.getByRole('combobox')).toContainText('qa@example.test')
+
+  await sendDialog.getByRole('button', { name: /^Send test$/ }).click()
+  await expect(sendDialog.getByText('Dry run complete')).toBeVisible()
+  await expect(sendDialog.getByText(/dry-run-\d+/)).toBeVisible()
+  await expect(page.getByText(/Dry run complete \(dry-run-\d+\)\. Nothing was sent\./)).toBeVisible()
   // The dialog has two buttons named Close: the icon in the corner and the footer button.
   await sendDialog.getByRole('button', { name: 'Close' }).last().click()
 

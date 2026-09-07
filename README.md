@@ -4,7 +4,7 @@ An internal studio for editing [React Email](https://react.email) templates, val
 
 ![Email Template Studio: editor and payload on the left, isolated preview and diagnostics on the right, template library below](docs/screenshots/studio-desktop.png)
 
-**Status:** MVP, local development only. **No email is sent.** There are no provider credentials anywhere in this repository, and the only email provider is a no-send stub (`src/infrastructure/providers/emailProvider.ts`).
+**Status:** MVP plus local test sending. The browser never holds credentials: test emails go through a small local send server (`server/`) that talks to Amazon SES only when you enable it in `.env`, and only to allow-listed recipients. See `docs/SENDING.md`.
 
 ## What you can do
 
@@ -17,7 +17,8 @@ An internal studio for editing [React Email](https://react.email) templates, val
 - Read a diagnostics panel that only claims what it actually checks.
 - Keep edits per template for the current browser session (survives refresh, not tab close).
 - Reset source and payload back to the originals, with a confirmation.
-- Open the Send test email and Publish changes controls and see exactly why they are not live yet.
+- Send a test email of the current preview to an allow-listed address through the local send server (Amazon SES), or see exactly why sending is unavailable.
+- Open Publish changes and see that it is a local simulation.
 
 ## Quick start
 
@@ -26,6 +27,10 @@ Requirements: Node.js 22 or newer (developed on Node 26.8) and npm (no pnpm/bun/
 ```bash
 npm install
 npm run dev        # http://localhost:5173
+
+# optional, for test sends (second terminal; see docs/SENDING.md)
+cp .env.example .env   # then edit
+npm run server
 ```
 
 ## Scripts
@@ -54,6 +59,7 @@ src/
   presentation/    React: hooks, layout, studio panels, shared components
   components/ui    shadcn/ui components (generated, editable)
   components/motion beUI animated badge (vendored, editable)
+server/            Local send server: config, SES sender, HTTP API (Node runs the TS directly)
 e2e/               Playwright browser tests
 docs/              Assessment, architecture, decisions, technical debt, roadmap, learning guide, design
 ```
@@ -73,10 +79,11 @@ Your TSX is compiled in the browser by [sucrase](https://github.com/alangpierce/
 - `docs/ROADMAP.md` — milestones and the backlog of deliberately deferred work
 - `docs/LEARNING.md` — concepts to learn, mapped to the files that use them
 - `docs/DESIGN.md` — visual system, tokens, microcopy and motion rules
+- `docs/SENDING.md` — enabling and using test sends through Amazon SES
 
-## Guarantees in this milestone
+## Guarantees
 
-- Nothing calls Amazon SES, SMTP or any network email API.
-- No AWS keys, SMTP credentials or production sender configuration exist in the codebase.
-- "Send test email" opens an explanation and its action stays disabled until a real provider is connected.
+- No AWS keys or SMTP credentials exist in the codebase; the send server relies on your AWS profile.
+- The browser never talks to SES; it only talks to the local send server through the `/api` proxy.
+- The send server is off unless `STUDIO_SEND_ENABLED=true`, only sends to `SES_ALLOWED_RECIPIENTS`, prefixes subjects with `[TEST]`, rate limits, and binds to loopback.
 - "Publish changes" only records a timestamp in your browser session and says so.

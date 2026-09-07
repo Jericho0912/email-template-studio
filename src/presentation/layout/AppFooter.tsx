@@ -16,7 +16,9 @@ export function AppFooter({ environment, version, providerLabel }: AppFooterProp
         </span>
         <span className="font-mono">v{version}</span>
         <span className="hidden sm:inline">Provider: {providerLabel}</span>
-        <span className="ml-auto">Email sending is disabled in this MVP. Nothing leaves your browser.</span>
+        <span className="ml-auto">
+          Test sends go through the local send server only. The browser never holds credentials.
+        </span>
       </div>
     </footer>
   )

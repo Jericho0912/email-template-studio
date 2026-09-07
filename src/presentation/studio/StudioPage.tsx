@@ -155,6 +155,7 @@ export function StudioPage({
         onOpenChange={setSendOpen}
         template={template}
         provider={provider}
+        html={preview.html}
       />
       <PublishDialog
         open={publishOpen}

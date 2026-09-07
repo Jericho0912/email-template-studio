@@ -29,3 +29,8 @@ playwright-report
 
 # Design reference screenshots (third-party product UI; keep out of version control)
 Picflow Images Sep 7 (1)/
+
+# Local secrets / send-server settings
+.env
+.env.*
+!.env.example

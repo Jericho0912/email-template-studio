@@ -1,0 +1,93 @@
+import { describe, expect, it, vi } from 'vitest'
+import { HttpTestEmailProvider, NoSendEmailProvider, SERVER_NOT_RUNNING_REASON } from './emailProvider'
+
+function fetchReturning(status: number, body: unknown): typeof fetch {
+  return vi.fn(
+    async () =>
+      new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }),
+  ) as unknown as typeof fetch
+}
+
+const email = { to: 'qa@example.com', subject: 'Hi', html: '<p>x</p>', templateId: 't' }
+
+describe('NoSendEmailProvider', () => {
+  it('is never connected and never sends', async () => {
+    const provider = new NoSendEmailProvider()
+    expect((await provider.getStatus()).connected).toBe(false)
+    expect((await provider.send()).status).toBe('not-sent')
+  })
+})
+
+describe('HttpTestEmailProvider', () => {
+  it('reports not connected when the server is unreachable', async () => {
+    const failing = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    }) as unknown as typeof fetch
+    const provider = new HttpTestEmailProvider('/api/send-test', failing)
+    expect(await provider.getStatus()).toEqual({ connected: false, reason: SERVER_NOT_RUNNING_REASON })
+    expect(await provider.send(email)).toMatchObject({ status: 'not-sent', code: 'server-unreachable' })
+  })
+
+  it('maps a disabled server to a reason', async () => {
+    const provider = new HttpTestEmailProvider(
+      '/api/send-test',
+      fetchReturning(200, { enabled: false, reason: 'off' }),
+    )
+    expect(await provider.getStatus()).toEqual({ connected: false, reason: 'off' })
+  })
+
+  it('parses a connected status and ignores unknown fields', async () => {
+    const provider = new HttpTestEmailProvider(
+      '/api/send-test',
+      fetchReturning(200, {
+        enabled: true,
+        provider: 'amazon-ses',
+        mode: 'live',
+        from: 'a@b.co',
+        allowedRecipients: ['q@b.co'],
+        region: 'us-east-1',
+        extra: 1,
+      }),
+    )
+    expect(await provider.getStatus()).toEqual({
+      connected: true,
+      provider: 'amazon-ses',
+      mode: 'live',
+      from: 'a@b.co',
+      allowedRecipients: ['q@b.co'],
+      region: 'us-east-1',
+    })
+  })
+
+  it('rejects malformed responses instead of trusting them', async () => {
+    const provider = new HttpTestEmailProvider('/api/send-test', fetchReturning(200, { enabled: true }))
+    expect((await provider.getStatus()).connected).toBe(false)
+    const sendProvider = new HttpTestEmailProvider('/api/send-test', fetchReturning(200, { status: 'sent' }))
+    expect(await sendProvider.send(email)).toMatchObject({ status: 'not-sent', code: 'unexpected-response' })
+  })
+
+  it('returns sent outcomes and server errors', async () => {
+    const ok = new HttpTestEmailProvider(
+      '/api/send-test',
+      fetchReturning(200, {
+        status: 'sent',
+        mode: 'dry-run',
+        messageId: 'dry-run-1',
+        to: 'q@b.co',
+        from: 'a@b.co',
+        subject: '[TEST] Hi',
+        sentAt: 'now',
+      }),
+    )
+    expect(await ok.send(email)).toMatchObject({ status: 'sent', messageId: 'dry-run-1' })
+    const refused = new HttpTestEmailProvider(
+      '/api/send-test',
+      fetchReturning(403, { status: 'error', code: 'recipient-not-allowed', message: 'no' }),
+    )
+    expect(await refused.send(email)).toEqual({
+      status: 'not-sent',
+      code: 'recipient-not-allowed',
+      message: 'no',
+    })
+  })
+})

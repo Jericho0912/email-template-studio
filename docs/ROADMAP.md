@@ -15,7 +15,7 @@ Deferred on purpose. Nothing here is implemented, simulated, or wired in this MV
 
 ## Backlog (from the MVP non-goals)
 
-- Amazon SES integration (M2)
+- Amazon SES integration beyond local test sends: Worker deployment, auth, bounce/complaint handling (M2)
 - Cloudflare Queues and dead-letter queues (M6)
 - D1 production persistence (M3)
 - Authentication and API-key management (M5)
