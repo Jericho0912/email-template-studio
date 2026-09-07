@@ -1,0 +1,199 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design tokens for Email Template Studio.
+ *
+ * Original palette (not copied from any product): a slightly warm off-white
+ * application ground, white working surfaces, hairline borders, near-black
+ * primary actions, and four restrained status hues. Editors use a dark surface
+ * that matches the CodeMirror "one dark" theme so chrome and code agree.
+ */
+@theme inline {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-heading: var(--font-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Status hues: use for badges, dots and inline messages only. */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-muted: var(--warning-muted);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-muted: var(--danger-muted);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-muted: var(--info-muted);
+
+  /* Dark editor surfaces (aligned with @codemirror/theme-one-dark). */
+  --color-editor: var(--editor);
+  --color-editor-chrome: var(--editor-chrome);
+  --color-editor-border: var(--editor-border);
+  --color-editor-foreground: var(--editor-foreground);
+  --color-editor-muted: var(--editor-muted);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  --background: oklch(0.982 0.002 95);
+  --foreground: oklch(0.2 0.012 265);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.22 0.014 265);
+  --primary-foreground: oklch(0.985 0.002 95);
+  --secondary: oklch(0.96 0.003 95);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.955 0.004 95);
+  --muted-foreground: oklch(0.5 0.012 265);
+  --accent: oklch(0.955 0.004 95);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.56 0.21 27);
+  --border: oklch(0.9 0.004 95);
+  --input: oklch(0.88 0.005 95);
+  --ring: oklch(0.6 0.015 265);
+
+  --success: oklch(0.6 0.15 152);
+  --success-foreground: oklch(0.36 0.11 152);
+  --success-muted: oklch(0.96 0.035 152);
+  --warning: oklch(0.76 0.16 75);
+  --warning-foreground: oklch(0.45 0.12 62);
+  --warning-muted: oklch(0.97 0.045 85);
+  --danger: oklch(0.6 0.21 27);
+  --danger-foreground: oklch(0.44 0.18 27);
+  --danger-muted: oklch(0.96 0.03 22);
+  --info: oklch(0.6 0.15 250);
+  --info-foreground: oklch(0.42 0.13 255);
+  --info-muted: oklch(0.96 0.025 250);
+
+  --editor: #282c34;
+  --editor-chrome: #21252b;
+  --editor-border: #353b45;
+  --editor-foreground: #abb2bf;
+  --editor-muted: #7d8590;
+}
+
+.dark {
+  --background: oklch(0.16 0.008 265);
+  --foreground: oklch(0.97 0.003 95);
+  --card: oklch(0.2 0.009 265);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.2 0.009 265);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.93 0.003 95);
+  --primary-foreground: oklch(0.2 0.012 265);
+  --secondary: oklch(0.26 0.01 265);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.26 0.01 265);
+  --muted-foreground: oklch(0.7 0.01 265);
+  --accent: oklch(0.26 0.01 265);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.7 0.19 22);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.55 0.012 265);
+
+  --success: oklch(0.72 0.15 152);
+  --success-foreground: oklch(0.85 0.12 152);
+  --success-muted: oklch(0.3 0.05 152);
+  --warning: oklch(0.8 0.15 80);
+  --warning-foreground: oklch(0.88 0.12 85);
+  --warning-muted: oklch(0.32 0.06 80);
+  --danger: oklch(0.7 0.19 22);
+  --danger-foreground: oklch(0.85 0.12 22);
+  --danger-muted: oklch(0.32 0.07 22);
+  --info: oklch(0.72 0.14 250);
+  --info-foreground: oklch(0.85 0.1 250);
+  --info-muted: oklch(0.3 0.05 250);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans antialiased;
+    font-feature-settings:
+      'cv11' 1,
+      'ss01' 1;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Respect the OS "reduce motion" setting for every animated element. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Uppercase metadata labels used above values (From, Subject, Status...). */
+  .meta-label {
+    @apply text-muted-foreground text-[11px] font-medium tracking-[0.08em] uppercase;
+  }
+  /* Subtle dotted ground used behind the preview frame. */
+  .dot-grid {
+    background-image: radial-gradient(
+      color-mix(in oklch, var(--border) 85%, transparent) 1px,
+      transparent 1px
+    );
+    background-size: 16px 16px;
+  }
+  /* CodeMirror sizing: fill the parent and use our mono font. */
+  .studio-editor .cm-editor {
+    height: 100%;
+    font-size: 13px;
+  }
+  .studio-editor .cm-scroller {
+    font-family: var(--font-mono);
+    line-height: 1.55;
+  }
+  .studio-editor .cm-editor.cm-focused {
+    outline: 2px solid color-mix(in oklch, var(--ring) 60%, transparent);
+    outline-offset: -2px;
+  }
+}
