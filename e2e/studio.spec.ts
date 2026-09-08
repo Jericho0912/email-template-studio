@@ -220,8 +220,23 @@ test('send test email goes through the local send server (dry run) and publish s
 
   await sendDialog.getByRole('button', { name: /^Send test$/ }).click()
   await expect(sendDialog.getByText('Dry run complete')).toBeVisible()
-  await expect(sendDialog.getByText(/dry-run-\d+/)).toBeVisible()
-  await expect(page.getByText(/Dry run complete \(dry-run-\d+\)\. Nothing was sent\./)).toBeVisible()
+  await expect(sendDialog.getByText(/dry-run-\d+-[0-9a-f]{52}/)).toBeVisible()
+  await expect(
+    page.getByText(/Dry run complete \(dry-run-\d+-[0-9a-f]{52}\)\. Nothing was sent\./),
+  ).toBeVisible()
+
+  // Regression: the long message id and the full-width recipient select must
+  // stay inside the dialog instead of widening its grid column.
+  const dialogBox = await sendDialog.boundingBox()
+  expect(dialogBox).not.toBeNull()
+  const overflow = await sendDialog.evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  }))
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth)
+  const comboboxBox = await sendDialog.getByRole('combobox').boundingBox()
+  expect(comboboxBox).not.toBeNull()
+  expect(comboboxBox!.x + comboboxBox!.width).toBeLessThanOrEqual(dialogBox!.x + dialogBox!.width - 8)
   // The dialog has two buttons named Close: the icon in the corner and the footer button.
   await sendDialog.getByRole('button', { name: 'Close' }).last().click()
 

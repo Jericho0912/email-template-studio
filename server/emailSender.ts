@@ -4,6 +4,7 @@
  * `EmailSender` is deliberately tiny so the HTTP layer can be tested with a
  * fake, and so a dry-run sender can exercise the whole path without AWS.
  */
+import { randomBytes } from 'node:crypto'
 import {
   GetAccountCommand,
   GetEmailIdentityCommand,
@@ -118,7 +119,11 @@ export function createDryRunSender(log: (line: string) => void = console.log): E
     mode: 'dry-run',
     async send(email) {
       counter += 1
-      const messageId = `dry-run-${counter}`
+      // As long as a real SES message id (about 60 characters) and with no
+      // line-break opportunity inside it, which is how Firefox and Safari
+      // treat a real id (UAX #14 never breaks between a hyphen and a digit).
+      // The UI must cope with that shape, so the rehearsal produces it too.
+      const messageId = `dry-run-${counter}-${randomBytes(26).toString('hex')}`
       log(
         `[dry-run] would send "${email.subject}" from ${email.from} to ${email.to} (${email.html.length} chars html) -> ${messageId}`,
       )

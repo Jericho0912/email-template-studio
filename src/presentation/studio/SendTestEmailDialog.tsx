@@ -123,7 +123,10 @@ function SendTestEmailForm({
         </Alert>
       ) : null}
 
-      <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-xs">
+      {/* `minmax(0,1fr)` lets the value column shrink below its content's
+          min-content width; a plain `1fr` (= minmax(auto,1fr)) would let a
+          long email or the full-width select widen the track past the dialog. */}
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 text-xs">
         <dt className="meta-label">
           <label htmlFor="send-test-recipient">To</label>
         </dt>
@@ -142,11 +145,13 @@ function SendTestEmailForm({
               </SelectContent>
             </Select>
           ) : (
-            <span className="text-muted-foreground font-mono">{template.metadata.to.address}</span>
+            <span className="text-muted-foreground font-mono break-all">{template.metadata.to.address}</span>
           )}
         </dd>
         <dt className="meta-label">From</dt>
-        <dd className="font-mono">{status?.connected ? status.from : template.metadata.from.address}</dd>
+        <dd className="font-mono break-all">
+          {status?.connected ? status.from : template.metadata.from.address}
+        </dd>
         <dt className="meta-label">Subject</dt>
         <dd>
           <span className="text-muted-foreground font-mono">[TEST]</span> {subject}
@@ -192,9 +197,11 @@ function SendTestEmailForm({
           <Alert role="status">
             <Send aria-hidden="true" />
             <AlertTitle>{outcome.mode === 'dry-run' ? 'Dry run complete' : 'Test email sent'}</AlertTitle>
-            <AlertDescription>
-              Message id <span className="font-mono">{outcome.messageId}</span> · to{' '}
-              <span className="font-mono">{outcome.to}</span>
+            {/* SES message ids are ~60 unbreakable characters: `break-all` wraps
+                them, and `min-w-0` stops them widening the dialog's grid column. */}
+            <AlertDescription className="min-w-0">
+              Message id <span className="font-mono break-all">{outcome.messageId}</span> · to{' '}
+              <span className="font-mono break-all">{outcome.to}</span>
               {outcome.mode === 'dry-run' ? '. Nothing left the server.' : '.'}
             </AlertDescription>
           </Alert>
