@@ -2,16 +2,18 @@
 
 Deferred on purpose. Nothing here is implemented, simulated, or wired in this MVP.
 
+The step-by-step build and Cloudflare migration plan for M2 onwards is `docs/PLAN.md` (phases 0 to 5, decisions, risks). This file stays the short list of what is in and out of scope.
+
 ## Milestones
 
-| Milestone | Goal                                               | Notes                                                                                                                                                    |
-| --------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M1 (done) | Local studio: edit, validate, preview, diagnostics | This repository                                                                                                                                          |
-| M2        | Test-email sending through a server-side provider  | Amazon SES behind a Cloudflare Worker; the browser never holds credentials; `EmailProvider` implementation with `canSend: true`; allow-listed recipients |
-| M3        | Persistence                                        | Templates, versions and drafts in Cloudflare D1; keep the `EmailTemplate` shape; replace `registry.ts`                                                   |
-| M4        | Publishing                                         | Real "publish" with versions, environment targets and an approval step                                                                                   |
-| M5        | Access control                                     | Authentication and API-key management for the sending API                                                                                                |
-| M6        | Delivery pipeline                                  | Cloudflare Queues + dead-letter queue for async sends and retries                                                                                        |
+| Milestone | Goal                                               | Notes                                                                                                                                                   |
+| --------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1 (done) | Local studio: edit, validate, preview, diagnostics | This repository (PLAN phase 0 deploys it as-is)                                                                                                         |
+| M2        | Test-email sending through a server-side provider  | Local half done (`server/`, see SENDING.md). Deployed half = PLAN phase 1: Cloudflare Access + SES via aws4fetch in the Worker; allow-listed recipients |
+| M3        | Persistence                                        | PLAN phase 2: templates, versions and drafts in Cloudflare D1; keep the `EmailTemplate` shape; replace `registry.ts`                                    |
+| M4        | Publishing                                         | PLAN phase 3: real "publish" with versions, environment targets and an approval step                                                                    |
+| M5        | Access control                                     | Sign-in is PLAN phase 1 (Cloudflare Access); API keys are PLAN phase 4                                                                                  |
+| M6        | Delivery pipeline                                  | PLAN phase 4: Cloudflare Queues + dead-letter queue for async sends and retries, SES feedback webhook                                                   |
 
 ## Backlog (from the MVP non-goals)
 

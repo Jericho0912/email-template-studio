@@ -77,6 +77,7 @@ Your TSX is compiled in the browser by [sucrase](https://github.com/alangpierce/
 - `docs/DECISIONS.md` — architecture decision records (framework, editor, compiler, motion, testing…)
 - `docs/TECH_DEBT.md` — known shortcuts and how to pay them down
 - `docs/ROADMAP.md` — milestones and the backlog of deliberately deferred work
+- `docs/PLAN.md` — build plan for the full application and the move to Cloudflare (phases, decisions, risks)
 - `docs/LEARNING.md` — concepts to learn, mapped to the files that use them
 - `docs/DESIGN.md` — visual system, tokens, microcopy and motion rules
 - `docs/SENDING.md` — enabling and using test sends through Amazon SES
