@@ -19,6 +19,8 @@ Each record: context, decision, alternatives, consequences. Versions are those i
 | 13  | Package manager | npm 11 (only one installed)                                                         | pnpm, bun                                                                                    |
 | 14  | Fonts           | Geist + Geist Mono (open licence, self-hosted via @fontsource)                      | Inter (closer to the reference product), system fonts                                        |
 
+Decisions 15 onwards (Workers hosting, Vite plugin, aws4fetch, Cloudflare Access, D1, Rate Limiting binding, JSON Schema props contract, Worker Loaders) are proposed in `docs/PLAN.md` section 1 and get a numbered record here when the phase that uses them lands.
+
 ## ADR-1 Framework: Vite SPA
 
 **Context.** Empty repository; internal tool; future Cloudflare deployment; beginner-friendly code required.
