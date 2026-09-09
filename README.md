@@ -4,7 +4,7 @@ An internal studio for editing [React Email](https://react.email) templates, val
 
 ![Email Template Studio: editor and payload on the left, isolated preview and diagnostics on the right, template library below](docs/screenshots/studio-desktop.png)
 
-**Status:** MVP plus local test sending. The browser never holds credentials: test emails go through a small local send server (`server/`) that talks to Amazon SES only when you enable it in `.env`, and only to allow-listed recipients. See `docs/SENDING.md`.
+**Status:** MVP plus local test sending, deployed to Cloudflare at https://email-template-studio.jerichodelrosario35.workers.dev (sending disabled there; see `docs/DEPLOYMENT.md`, including why the current account is temporary). The browser never holds credentials: test emails go through a small local send server (`server/`) that talks to Amazon SES only when you enable it in `.env`, and only to allow-listed recipients. See `docs/SENDING.md`.
 
 ## What you can do
 
@@ -26,20 +26,25 @@ Requirements: Node.js 22 or newer (developed on Node 26.8) and npm (no pnpm/bun/
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173, API in the Cloudflare runtime (workerd), sending off
 
-# optional, for test sends (second terminal; see docs/SENDING.md)
+# optional, for real test sends through Amazon SES (see docs/SENDING.md)
 cp .env.example .env   # then edit
-npm run server
+npm run server         # terminal 1: Node send server
+npm run dev:node       # terminal 2: the studio, proxying /api to it
 ```
+
+Deploy: `npm run deploy` (needs `npx wrangler login`; see `docs/DEPLOYMENT.md`).
 
 ## Scripts
 
 | Command              | What it does                                                                                              |
 | -------------------- | --------------------------------------------------------------------------------------------------------- |
-| `npm run dev`        | Start the Vite dev server with hot reload.                                                                |
-| `npm run build`      | Type-check (`tsc -b`) and build the production bundle into `dist/`.                                       |
-| `npm run preview`    | Serve the production build locally.                                                                       |
+| `npm run dev`        | Start the Vite dev server with hot reload; `/api` runs in workerd via the Cloudflare plugin.              |
+| `npm run dev:node`   | Same, but `/api` is proxied to the Node send server (`npm run server`).                                   |
+| `npm run build`      | Generate Worker types, type-check (`tsc -b`) and build the client and the Worker into `dist/`.            |
+| `npm run preview`    | Serve the production build locally (workerd for `/api`). `preview:node` proxies to the Node server.       |
+| `npm run deploy`     | Build and deploy the Worker with wrangler.                                                                |
 | `npm test`           | Run unit and component tests once (Vitest).                                                               |
 | `npm run test:watch` | Run tests in watch mode.                                                                                  |
 | `npm run test:e2e`   | Run Playwright browser tests against the production build (needs `npx playwright install chromium` once). |
@@ -59,7 +64,8 @@ src/
   presentation/    React: hooks, layout, studio panels, shared components
   components/ui    shadcn/ui components (generated, editable)
   components/motion beUI animated badge (vendored, editable)
-server/            Local send server: config, SES sender, HTTP API (Node runs the TS directly)
+server/            Runtime-neutral Hono API (config, sender contract, routes), Node adapter, SES sender (Node only)
+worker/            Cloudflare Worker entry: hosts the same API; wrangler.jsonc describes the deployment
 e2e/               Playwright browser tests
 docs/              Assessment, architecture, decisions, technical debt, roadmap, learning guide, design
 ```
@@ -82,6 +88,7 @@ Your TSX is compiled in the browser by [sucrase](https://github.com/alangpierce/
 - `docs/LEARNING.md` — concepts to learn, mapped to the files that use them
 - `docs/DESIGN.md` — visual system, tokens, microcopy and motion rules
 - `docs/SENDING.md` — enabling and using test sends through Amazon SES
+- `docs/DEPLOYMENT.md` — where the studio runs, how to deploy, and the move to a production account
 
 ## Guarantees
 

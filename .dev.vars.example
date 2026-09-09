@@ -1,0 +1,10 @@
+# Local Worker variables for `npm run dev` / `npm run preview` (copy to .dev.vars, git-ignored).
+# These mirror `vars` in wrangler.jsonc. Live SES sending is NOT available in the Worker yet
+# (docs/PLAN.md phase 1); use `npm run dev:node` + `npm run server` for that (docs/SENDING.md).
+
+# Rehearse the send dialog without AWS:
+# STUDIO_SEND_ENABLED=true
+# STUDIO_SEND_DRY_RUN=true
+# AWS_REGION=us-east-1
+# SES_FROM_ADDRESS=studio@example.test
+# SES_ALLOWED_RECIPIENTS=you@example.test

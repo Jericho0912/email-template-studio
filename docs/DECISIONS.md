@@ -2,24 +2,25 @@
 
 Each record: context, decision, alternatives, consequences. Versions are those installed on 2026-09-08.
 
-| #   | Topic           | Decision                                                                            | Rejected                                                                                     |
-| --- | --------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 1   | Framework       | Vite 8.2 + React 19.2 + TypeScript 6.0 single-page app                              | Next.js 16 (server not needed yet), Vite + Hono server                                       |
-| 2   | Styling         | Tailwind CSS 4.3 via `@tailwindcss/vite`, tokens as CSS variables                   | CSS modules, styled-components                                                               |
-| 3   | Components      | shadcn/ui 4.21 (radix base, "nova" preset, Lucide icons)                            | MUI, Chakra, hand-rolled                                                                     |
-| 4   | Motion          | beUI via shadcn registry, one component (`animated-badge`), on `motion` 13.2        | Whole beUI kit; framer-motion legacy; no motion                                              |
-| 5   | Code editor     | CodeMirror 6 via `@uiw/react-codemirror` 4.25                                       | Monaco (10× larger, worker plumbing)                                                         |
-| 6   | TSX compiler    | sucrase 3.35 in a Web Worker                                                        | `@babel/standalone` (2.4 MB), esbuild-wasm (14 MB), TypeScript (7.x has no JS transpile API) |
-| 7   | Render location | Browser, inside the worker, with `@react-email/components` 1.0                      | Server render (no server; riskier for arbitrary code)                                        |
-| 8   | Isolation       | Worker + hardened globals + timeout + `iframe sandbox=""` + CSP                     | `eval` on main thread; cross-origin iframe host (later)                                      |
-| 9   | Validation      | Zod 4.5 schemas per template, adapted to a domain `PropsValidator`                  | JSON Schema + ajv; hand-written checks                                                       |
-| 10  | State           | `useReducer` + pure reducer + `sessionStorage`                                      | Zustand/Redux (over-scoped for one page)                                                     |
-| 11  | Testing         | Vitest 5 (node + jsdom) + Testing Library + Playwright 1.63 on the production build | Jest; Cypress                                                                                |
-| 12  | Lint / format   | oxlint (shipped by the Vite template) + Prettier 3.9 with Tailwind plugin           | ESLint flat config (heavier setup)                                                           |
-| 13  | Package manager | npm 11 (only one installed)                                                         | pnpm, bun                                                                                    |
-| 14  | Fonts           | Geist + Geist Mono (open licence, self-hosted via @fontsource)                      | Inter (closer to the reference product), system fonts                                        |
+| #   | Topic           | Decision                                                                              | Rejected                                                                                     |
+| --- | --------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1   | Framework       | Vite 8.2 + React 19.2 + TypeScript 6.0 single-page app                                | Next.js 16 (server not needed yet), Vite + Hono server                                       |
+| 2   | Styling         | Tailwind CSS 4.3 via `@tailwindcss/vite`, tokens as CSS variables                     | CSS modules, styled-components                                                               |
+| 3   | Components      | shadcn/ui 4.21 (radix base, "nova" preset, Lucide icons)                              | MUI, Chakra, hand-rolled                                                                     |
+| 4   | Motion          | beUI via shadcn registry, one component (`animated-badge`), on `motion` 13.2          | Whole beUI kit; framer-motion legacy; no motion                                              |
+| 5   | Code editor     | CodeMirror 6 via `@uiw/react-codemirror` 4.25                                         | Monaco (10× larger, worker plumbing)                                                         |
+| 6   | TSX compiler    | sucrase 3.35 in a Web Worker                                                          | `@babel/standalone` (2.4 MB), esbuild-wasm (14 MB), TypeScript (7.x has no JS transpile API) |
+| 7   | Render location | Browser, inside the worker, with `@react-email/components` 1.0                        | Server render (no server; riskier for arbitrary code)                                        |
+| 8   | Isolation       | Worker + hardened globals + timeout + `iframe sandbox=""` + CSP                       | `eval` on main thread; cross-origin iframe host (later)                                      |
+| 9   | Validation      | Zod 4.5 schemas per template, adapted to a domain `PropsValidator`                    | JSON Schema + ajv; hand-written checks                                                       |
+| 10  | State           | `useReducer` + pure reducer + `sessionStorage`                                        | Zustand/Redux (over-scoped for one page)                                                     |
+| 11  | Testing         | Vitest 5 (node + jsdom) + Testing Library + Playwright 1.63 on the production build   | Jest; Cypress                                                                                |
+| 12  | Lint / format   | oxlint (shipped by the Vite template) + Prettier 3.9 with Tailwind plugin             | ESLint flat config (heavier setup)                                                           |
+| 13  | Package manager | npm 11 (only one installed)                                                           | pnpm, bun                                                                                    |
+| 14  | Fonts           | Geist + Geist Mono (open licence, self-hosted via @fontsource)                        | Inter (closer to the reference product), system fonts                                        |
+| 15  | Hosting         | One Cloudflare Worker: static assets + Hono API, built with `@cloudflare/vite-plugin` | Cloudflare Pages (maintenance only), separate Worker + Pages, Node on a VM                   |
 
-Decisions 15 onwards (Workers hosting, Vite plugin, aws4fetch, Cloudflare Access, D1, Rate Limiting binding, JSON Schema props contract, Worker Loaders) are proposed in `docs/PLAN.md` section 1 and get a numbered record here when the phase that uses them lands.
+Decisions 16 onwards (aws4fetch, Cloudflare Access, D1, Rate Limiting binding, JSON Schema props contract, Worker Loaders) are proposed in `docs/PLAN.md` section 1 and get a numbered record here when the phase that uses them lands.
 
 ## ADR-1 Framework: Vite SPA
 
@@ -27,6 +28,13 @@ Decisions 15 onwards (Workers hosting, Vite plugin, aws4fetch, Cloudflare Access
 **Decision.** A Vite single-page app. Everything the MVP needs runs client-side, so a static bundle is the simplest thing that works and deploys anywhere (including Cloudflare Pages). When a server is needed (sending via SES, D1 persistence) `@cloudflare/vite-plugin` 1.54 adds a Worker to the same project without switching frameworks.
 **Alternatives.** Next.js 16 gives API routes today, but adds routing, RSC and server concepts that the MVP does not use and a beginner must learn. Running arbitrary TSX on a server is also a worse default than running it in the author's browser.
 **Consequences.** No SSR; no server code yet; `npm run build` produces static files.
+
+## ADR-15 Hosting: one Cloudflare Worker with static assets
+
+**Context.** The studio needed a URL before the rest of the platform exists (`docs/PLAN.md` phase 0). The team's future backend is Cloudflare (D1, Queues, Access), and the local send server is already a runtime-neutral Hono app.
+**Decision.** A single Worker serves the Vite build as static assets and runs the Hono app for `/api/*`. `@cloudflare/vite-plugin` 1.54 keeps `npm run dev/build/preview` and runs the Worker in workerd locally; `wrangler` 4.130 deploys. The Node adapter (`server/node.ts`) stays for live SES sends until phase 1. The first deployment is on the developer's **personal** Cloudflare account, documented as temporary in `docs/DEPLOYMENT.md`, with sending disabled and no data.
+**Alternatives.** Cloudflare Pages: Cloudflare's own guidance points new projects at Workers with static assets, and Pages Functions would split the API from the send server code. Two Workers (assets and API): one more deploy and CORS for nothing. Keeping the Node server on a VM: a machine to patch.
+**Consequences.** Four TypeScript projects (`app`, `node`, `server`, `worker`); `worker-configuration.d.ts` is generated, not committed. The Worker cannot run `new Function`, so preview rendering stays in the browser. Sending from the Worker waits for an `aws4fetch` sender (ADR-16, phase 1). The deployed app is unauthenticated until Access is in place (TECH_DEBT #19).
 
 ## ADR-4 Motion: beUI selectively
 

@@ -1,23 +1,39 @@
 # Sending test emails (milestone 2, local)
 
-Test sends go through a small **local send server** (`server/`) that talks to Amazon SES. The browser only calls `/api/send-test` through the Vite proxy; it never sees AWS credentials.
+Test sends go through a small **local send server** (`server/`) that talks to Amazon SES. The browser only calls `/api/send-test`; it never sees AWS credentials.
+
+## Two ways to run the API locally
+
+The same Hono app (`server/app.ts`) can be hosted by two adapters. Pick one per terminal session:
+
+| Runtime              | Start with                            | `/api/*` is served by                                                      | Can send through SES?                                                  |
+| -------------------- | ------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Cloudflare (default) | `npm run dev`                         | `worker/index.ts` running in workerd next to Vite (the production runtime) | **Not yet.** Disabled or dry-run only; variables come from `.dev.vars` |
+| Node                 | `npm run dev:node` + `npm run server` | Vite proxies to `server/node.ts` on `127.0.0.1:8787`                       | Yes (this page)                                                        |
 
 ```
+Node runtime:
 Browser (Vite, :5173) ──/api──▶ send server (Node, 127.0.0.1:8787) ──SDK──▶ Amazon SES (SESv2 SendEmail)
+
+Cloudflare runtime:
+Browser (Vite, :5173) ──/api──▶ worker/index.ts in workerd ──(phase 1: aws4fetch)──▶ Amazon SES
 ```
+
+`STUDIO_RUNTIME=node` in `.env` makes the Node runtime the default for `npm run dev` on that machine. The deployed Worker is described in `docs/DEPLOYMENT.md`.
 
 ## Guards
 
-| Guard                 | Where                      | Effect                                                                                 |
-| --------------------- | -------------------------- | -------------------------------------------------------------------------------------- |
-| `STUDIO_SEND_ENABLED` | `server/config.ts`         | Anything but `true` keeps the server in disabled mode; the UI says so.                 |
-| Allow-list            | `server/app.ts`            | `SES_ALLOWED_RECIPIENTS` is the only set of addresses that can receive.                |
-| Subject prefix        | `server/app.ts`            | Every test subject starts with `[TEST]`.                                               |
-| Rate limit            | `server/app.ts`            | `STUDIO_SEND_RATE_LIMIT_PER_MINUTE` (default 5), sliding window.                       |
-| HTML size cap         | `server/app.ts`            | 500 KB.                                                                                |
-| Loopback only         | `server/index.ts`          | Binds to 127.0.0.1.                                                                    |
-| Dry run               | `STUDIO_SEND_DRY_RUN=true` | Full path, no AWS call, `dry-run-N` message ids.                                       |
-| Credentials           | AWS SDK                    | Read by the SDK from `AWS_PROFILE` / `~/.aws` or `AWS_*` env vars; never by this code. |
+| Guard                 | Where                      | Effect                                                                                                |
+| --------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `STUDIO_SEND_ENABLED` | `server/config.ts`         | Anything but `true` keeps the server in disabled mode; the UI says so.                                |
+| Allow-list            | `server/app.ts`            | `SES_ALLOWED_RECIPIENTS` is the only set of addresses that can receive.                               |
+| Subject prefix        | `server/app.ts`            | Every test subject starts with `[TEST]`.                                                              |
+| Rate limit            | `server/app.ts`            | `STUDIO_SEND_RATE_LIMIT_PER_MINUTE` (default 5), sliding window.                                      |
+| HTML size cap         | `server/app.ts`            | 500 KB.                                                                                               |
+| Host policy           | `server/app.ts`            | Node: Host and Origin must be localhost (`loopback`). Worker: Origin must equal Host (`same-origin`). |
+| Loopback only         | `server/node.ts`           | The Node adapter binds to 127.0.0.1.                                                                  |
+| Dry run               | `STUDIO_SEND_DRY_RUN=true` | Full path, no AWS call, `dry-run-N` message ids.                                                      |
+| Credentials           | AWS SDK                    | Read by the SDK from `AWS_PROFILE` / `~/.aws` or `AWS_*` env vars; never by this code.                |
 
 ## Notes
 
@@ -37,7 +53,7 @@ Browser (Vite, :5173) ──/api──▶ send server (Node, 127.0.0.1:8787) ─
 
 ```bash
 npm run server      # send server, reads .env; prints mode/from/recipients on start
-npm run dev         # the studio
+npm run dev:node    # the studio, proxying /api to the send server
 ```
 
 5. In the studio: select a template, open **Send test email**, check the preflight line (sender verified, sandbox or not), pick a recipient, press **Send test**. The dialog shows the SES message id.
@@ -65,5 +81,5 @@ curl -s -X POST http://127.0.0.1:8787/api/send-test \
 ## What this is not
 
 - Not a production sending path. No queue, retries, templates-as-a-service or tracking.
-- Not deployed anywhere. It runs on the developer's machine only.
+- Not the deployed path. The Cloudflare Worker (`docs/DEPLOYMENT.md`) cannot send until phase 1 of `docs/PLAN.md` replaces the AWS SDK with a Worker-compatible client.
 - Not authenticated. It relies on binding to loopback; do not expose the port.
