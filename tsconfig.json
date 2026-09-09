@@ -9,13 +9,14 @@
     },
     {
       "path": "./tsconfig.server.json"
+    },
+    {
+      "path": "./tsconfig.worker.json"
     }
   ],
   "compilerOptions": {
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"]
     }
   }
 }

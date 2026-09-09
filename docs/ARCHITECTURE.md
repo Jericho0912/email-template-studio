@@ -103,3 +103,14 @@ stateDiagram-v2
 - `NoSendEmailProvider`: never connected; used in tests.
 
 The send server (`server/`, Node + Hono) owns the SES call, the recipient allow-list, the `[TEST]` prefix, the rate limit and the dry-run mode. Credentials are resolved by the AWS SDK from the developer's profile; the repository never reads them. Details in `docs/SENDING.md`.
+
+## Runtimes: one API, two hosts
+
+`server/app.ts` is a plain Hono app that knows nothing about where it runs. Two adapters host it:
+
+| Adapter           | Runs where                                       | Sender                                     | Host policy   |
+| ----------------- | ------------------------------------------------ | ------------------------------------------ | ------------- |
+| `server/node.ts`  | Node on the developer's machine, loopback only   | Amazon SES via the AWS SDK, or dry-run     | `loopback`    |
+| `worker/index.ts` | Cloudflare Worker (workerd locally and deployed) | None or dry-run (phase 1 adds `aws4fetch`) | `same-origin` |
+
+The rule from `docs/PLAN.md`: `server/` never imports `node:*` or `cloudflare:*`; the adapters do the platform work. `server/sesSender.ts` is the one exception (AWS SDK) and only the Node adapter imports it. Deployment details in `docs/DEPLOYMENT.md`.

@@ -5,7 +5,8 @@
 import { serve } from '@hono/node-server'
 import { createApp } from './app.ts'
 import { ConfigError, loadConfig } from './config.ts'
-import { createDryRunSender, createSesSender } from './emailSender.ts'
+import { createDryRunSender } from './emailSender.ts'
+import { createSesSender } from './sesSender.ts'
 
 function main(): void {
   let config
@@ -25,7 +26,7 @@ function main(): void {
       ? createDryRunSender()
       : createSesSender({ region: config.region, configurationSet: config.configurationSet })
 
-  const app = createApp({ config, sender })
+  const app = createApp({ config, sender, hostPolicy: 'loopback' })
   const server = serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
     const base = `http://127.0.0.1:${info.port}`
     if (config.enabled && sender) {

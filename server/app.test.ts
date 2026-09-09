@@ -225,6 +225,41 @@ describe('same-machine guards', () => {
     expect(response.status).toBe(400)
   })
 
+  it('same-origin policy accepts any Host but refuses a foreign Origin', () => {
+    const policy = 'same-origin'
+    expect(rejectForeignRequest('studio.example.workers.dev', undefined, policy)).toBeNull()
+    expect(
+      rejectForeignRequest('studio.example.workers.dev', 'https://studio.example.workers.dev', policy),
+    ).toBeNull()
+    expect(
+      rejectForeignRequest('Studio.Example.workers.dev', 'https://studio.example.workers.dev', policy),
+    ).toBeNull()
+    expect(rejectForeignRequest('localhost:4173', 'http://localhost:4173', policy)).toBeNull()
+    expect(rejectForeignRequest('studio.example.workers.dev', 'https://attacker.example', policy)).toMatch(
+      /Cross-site/,
+    )
+    expect(rejectForeignRequest('localhost:4173', 'http://localhost:5173', policy)).toMatch(/Cross-site/)
+    expect(rejectForeignRequest(undefined, undefined, policy)).toMatch(/Host/)
+  })
+
+  it('an app with the same-origin policy serves a public hostname', async () => {
+    const app = createApp({
+      config: enabledConfig,
+      sender: createDryRunSender(() => {}),
+      hostPolicy: 'same-origin',
+    })
+    const status = await app.request('/api/send-test/status', {
+      headers: { host: 'studio.example.workers.dev' },
+    })
+    expect(status.status).toBe(200)
+    const crossSite = await post(app, validBody, {
+      ...LOCAL_HEADERS,
+      host: 'studio.example.workers.dev',
+      origin: 'https://attacker.example',
+    })
+    expect(crossSite.status).toBe(403)
+  })
+
   it('rejectForeignRequest understands ports and IPv6 hosts', () => {
     expect(rejectForeignRequest('localhost:8787', undefined)).toBeNull()
     expect(rejectForeignRequest('[::1]:8787', 'http://localhost:5173')).toBeNull()

@@ -5,18 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev:node": "STUDIO_RUNTIME=node vite",
+    "build": "npm run cf:types && tsc -b && vite build",
     "preview": "vite preview",
+    "preview:node": "STUDIO_RUNTIME=node vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "lint": "oxlint",
-    "typecheck": "tsc -b --noEmit",
+    "cf:types": "wrangler types",
+    "typecheck": "npm run cf:types && tsc -b --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run lint && npm run test",
-    "server": "node --env-file-if-exists=.env server/index.ts",
-    "server:dry-run": "STUDIO_SEND_DRY_RUN=true node --env-file-if-exists=.env server/index.ts"
+    "server": "node --env-file-if-exists=.env server/node.ts",
+    "server:dry-run": "STUDIO_SEND_DRY_RUN=true node --env-file-if-exists=.env server/node.ts",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1127.0",
@@ -47,6 +51,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.6",
     "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -61,7 +66,8 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "wrangler": "^4.130.0"
   },
   "description": "Internal Email Template Studio MVP: edit React Email templates and preview them locally. No email is sent.",
   "engines": {

@@ -34,9 +34,19 @@ const sendRequestSchema = z.object({
 
 export type SendRequest = z.infer<typeof sendRequestSchema>
 
+/**
+ * Which requests the API trusts, decided by the adapter that hosts it:
+ * - loopback: Host and Origin must be localhost (the Node send server, bound to 127.0.0.1)
+ * - same-origin: Origin, when present, must equal Host (the Cloudflare Worker on a public hostname)
+ * Both stop cross-site browser requests; loopback additionally stops DNS rebinding.
+ */
+export type HostPolicy = 'loopback' | 'same-origin'
+
 export interface AppDependencies {
   readonly config: SendServerConfig
   readonly sender: EmailSender | null
+  /** Defaults to the strict loopback rule so a forgotten option never widens access. */
+  readonly hostPolicy?: HostPolicy
   /** Injectable clock for tests. */
   readonly now?: () => number
 }
@@ -44,15 +54,20 @@ export interface AppDependencies {
 /** How long a preflight result is reused before SES is asked again. */
 export const PREFLIGHT_CACHE_MS = 60_000
 
-export function createApp({ config, sender, now = () => Date.now() }: AppDependencies) {
+export function createApp({
+  config,
+  sender,
+  hostPolicy = 'loopback',
+  now = () => Date.now(),
+}: AppDependencies) {
   const app = new Hono()
   const limiter = createRateLimiter(config.enabled ? config.rateLimitPerMinute : 0, now)
   const preflight = createPreflightCache(config, sender, now)
 
-  // Same-machine only. Rejects DNS-rebinding (foreign Host) and cross-site
-  // browser requests (foreign Origin) even though the socket is loopback-bound.
+  // Rejects foreign Host (DNS rebinding, loopback policy only) and cross-site
+  // browser requests (foreign Origin) before any route runs.
   app.use('/api/*', async (c, next) => {
-    const problem = rejectForeignRequest(c.req.header('host'), c.req.header('origin'))
+    const problem = rejectForeignRequest(c.req.header('host'), c.req.header('origin'), hostPolicy)
     if (problem) return c.json({ status: 'error', code: 'forbidden-origin', message: problem }, 403)
     await next()
   })
@@ -218,19 +233,28 @@ function createPreflightCache(config: SendServerConfig, sender: EmailSender | nu
   }
 }
 
-/** Returns a reason to refuse, or null when Host and Origin (if present) are local. */
-export function rejectForeignRequest(host: string | undefined, origin: string | undefined): string | null {
-  if (!host || !LOCAL_HOSTNAMES.has(hostnameOf(host)))
+/** Returns a reason to refuse, or null when Host and Origin (if present) satisfy the policy. */
+export function rejectForeignRequest(
+  host: string | undefined,
+  origin: string | undefined,
+  policy: HostPolicy = 'loopback',
+): string | null {
+  if (!host) return 'Requests without a Host header are not accepted.'
+  if (policy === 'loopback' && !LOCAL_HOSTNAMES.has(hostnameOf(host)))
     return 'Requests are only accepted from this machine (Host must be localhost).'
   // `Origin: null` comes from opaque contexts (sandboxed iframes, file: pages); nothing legitimate uses it here.
   if (origin) {
-    let originHost: string
+    let originUrl: URL
     try {
-      originHost = new URL(origin).hostname
+      originUrl = new URL(origin)
     } catch {
       return 'Origin header is not a valid URL.'
     }
-    if (!LOCAL_HOSTNAMES.has(originHost)) return 'Cross-site requests are not accepted.'
+    const sameOrigin =
+      policy === 'loopback'
+        ? LOCAL_HOSTNAMES.has(originUrl.hostname)
+        : originUrl.host.toLowerCase() === host.toLowerCase()
+    if (!sameOrigin) return 'Cross-site requests are not accepted.'
   }
   return null
 }

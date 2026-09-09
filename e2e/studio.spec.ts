@@ -206,9 +206,7 @@ test('device toggle changes the preview viewport', async ({ page }) => {
   await expect(page.getByRole('radio', { name: 'Mobile preview' })).toHaveAttribute('aria-checked', 'true')
 })
 
-test('send test email goes through the local send server (dry run) and publish stays simulated', async ({
-  page,
-}) => {
+test('send test email goes through the API in dry-run mode and publish stays simulated', async ({ page }) => {
   await expect(previewBody(page)).toContainText('Welcome, Ada', { timeout: 15_000 })
 
   await page.getByRole('button', { name: 'Send test email' }).click()
