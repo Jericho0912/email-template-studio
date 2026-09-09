@@ -2,6 +2,8 @@
 
 Deferred on purpose. Nothing here is implemented, simulated, or wired in this MVP.
 
+The detailed, feature-by-feature plan for the dashboard screens (Overview and Logs, Domains and DNS, API keys and webhooks, Projects Hub) and the multi-project hierarchy is `docs/FEATURE_PLAN.md`. Its phases map onto the milestones below: phase 0 to 5 are the UI over seeded data, phase 6 is M2 to M6.
+
 ## Milestones
 
 | Milestone | Goal                                               | Notes                                                                                                                                                    |
