@@ -6,14 +6,17 @@
  * layer; only `/api/*` reaches this code (see `run_worker_first` in wrangler.jsonc).
  *
  * Runtime differences from `server/node.ts`:
- * - configuration comes from Worker bindings (`vars` in wrangler.jsonc, `.dev.vars` locally), not process.env
- * - there is no Amazon SES sender yet: the AWS SDK needs Node APIs. Sending stays
- *   disabled (or dry-run) until phase 1 of docs/PLAN.md adds an `aws4fetch` sender
+ * - configuration comes from Worker bindings (`vars` and secrets in wrangler.jsonc,
+ *   `.dev.vars` locally), not from process.env
+ * - AWS credentials must be Worker secrets: an isolate has no `~/.aws` to read
  * - the host policy is `same-origin`: the Worker answers on a public hostname
+ *
+ * Live Amazon SES sending works here as of the aws4fetch sender (docs/SENDING.md);
+ * it is switched on per environment with STUDIO_SEND_ENABLED and three secrets.
  */
 import { createApp } from '../server/app.ts'
 import { ConfigError, loadConfig } from '../server/config.ts'
-import { createDryRunSender } from '../server/emailSender.ts'
+import { createSender } from '../server/createSender.ts'
 
 type App = ReturnType<typeof createApp>
 
@@ -27,14 +30,7 @@ function variablesOf(env: Env): Record<string, string | undefined> {
 
 function buildApp(env: Env): App {
   const config = loadConfig(variablesOf(env))
-  if (config.enabled && !config.dryRun) {
-    // Refuse loudly rather than pretend: live sending needs the phase 1 sender.
-    throw new ConfigError(
-      'Live sending is not available in the Worker yet. Set STUDIO_SEND_DRY_RUN=true or STUDIO_SEND_ENABLED=false.',
-    )
-  }
-  const sender = config.enabled ? createDryRunSender() : null
-  return createApp({ config, sender, hostPolicy: 'same-origin' })
+  return createApp({ config, sender: createSender(config), hostPolicy: 'same-origin' })
 }
 
 export default {
