@@ -1,23 +1,28 @@
-# Sending test emails (milestone 2, local)
+# Sending test emails
 
-Test sends go through a small **local send server** (`server/`) that talks to Amazon SES. The browser only calls `/api/send-test`; it never sees AWS credentials.
+Test sends go through the Hono API in `server/`, which talks to Amazon SES. The browser only calls `/api/send-test`; it never sees AWS credentials.
 
-## Two ways to run the API locally
+## One sender, two runtimes
 
-The same Hono app (`server/app.ts`) can be hosted by two adapters. Pick one per terminal session:
+`server/sesSender.ts` signs its own SES requests with `aws4fetch`, so it runs unchanged in Node and in a Cloudflare Worker (ADR-16). Both adapters pick a sender through `server/createSender.ts`: disabled, dry-run, or live SES.
 
-| Runtime              | Start with                            | `/api/*` is served by                                                      | Can send through SES?                                                  |
-| -------------------- | ------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Cloudflare (default) | `npm run dev`                         | `worker/index.ts` running in workerd next to Vite (the production runtime) | **Not yet.** Disabled or dry-run only; variables come from `.dev.vars` |
-| Node                 | `npm run dev:node` + `npm run server` | Vite proxies to `server/node.ts` on `127.0.0.1:8787`                       | Yes (this page)                                                        |
+| Runtime              | Start with                            | `/api/*` is served by                                                      | Can send through SES? |
+| -------------------- | ------------------------------------- | -------------------------------------------------------------------------- | --------------------- |
+| Cloudflare (default) | `npm run dev`                         | `worker/index.ts` running in workerd next to Vite (the production runtime) | Yes, from `.dev.vars` |
+| Node                 | `npm run dev:node` + `npm run server` | Vite proxies to `server/node.ts` on `127.0.0.1:8787`                       | Yes, from `.env`      |
 
 ```
 Node runtime:
-Browser (Vite, :5173) ──/api──▶ send server (Node, 127.0.0.1:8787) ──SDK──▶ Amazon SES (SESv2 SendEmail)
+Browser (Vite, :5173) ──/api──▶ send server (Node, 127.0.0.1:8787) ──aws4fetch──▶ Amazon SES v2
 
 Cloudflare runtime:
-Browser (Vite, :5173) ──/api──▶ worker/index.ts in workerd ──(phase 1: aws4fetch)──▶ Amazon SES
+Browser (Vite, :5173) ──/api──▶ worker/index.ts in workerd ──aws4fetch──▶ Amazon SES v2
+
+Deployed:
+Browser ──/api──▶ Worker on Cloudflare ──aws4fetch──▶ Amazon SES v2
 ```
+
+The only difference between the runtimes is where the variables come from: `.env` and `process.env` for Node, bindings for the Worker (`.dev.vars` locally, `vars` plus secrets when deployed).
 
 `STUDIO_RUNTIME=node` in `.env` makes the Node runtime the default for `npm run dev` on that machine. The deployed Worker is described in `docs/DEPLOYMENT.md`.
 
@@ -32,8 +37,9 @@ Browser (Vite, :5173) ──/api──▶ worker/index.ts in workerd ──(phas
 | HTML size cap         | `server/app.ts`            | 500 KB.                                                                                               |
 | Host policy           | `server/app.ts`            | Node: Host and Origin must be localhost (`loopback`). Worker: Origin must equal Host (`same-origin`). |
 | Loopback only         | `server/node.ts`           | The Node adapter binds to 127.0.0.1.                                                                  |
-| Dry run               | `STUDIO_SEND_DRY_RUN=true` | Full path, no AWS call, `dry-run-N` message ids.                                                      |
-| Credentials           | AWS SDK                    | Read by the SDK from `AWS_PROFILE` / `~/.aws` or `AWS_*` env vars; never by this code.                |
+| Dry run               | `STUDIO_SEND_DRY_RUN=true` | Full path, no AWS call, `dry-run-N` message ids. Needs no credentials at all.                         |
+| Credentials           | `server/config.ts`         | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, required only for a live (non-dry-run) sender.         |
+| IAM policy            | AWS, not this code         | The real backstop: scope the key to `ses:SendEmail` from one identity (`docs/DEPLOYMENT.md`).         |
 
 ## Notes
 
@@ -46,9 +52,20 @@ Browser (Vite, :5173) ──/api──▶ worker/index.ts in workerd ──(phas
 1. Verify a sender identity in SES (an email address or a domain) in the region you will use. Identities are **per region**.
 2. While the account is in the SES sandbox, recipients must also be verified identities.
 3. Copy `.env.example` to `.env` and fill in:
-   - `AWS_PROFILE` and `AWS_REGION` (the region that holds your identities)
+   - `AWS_REGION` (the region that holds your identities)
    - `SES_FROM_ADDRESS` (a verified identity)
    - `SES_ALLOWED_RECIPIENTS` (comma separated)
+   - `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, once you set `STUDIO_SEND_DRY_RUN=false`
+
+   Keys live in an AWS profile? Turn the profile into those variables:
+
+   ```bash
+   aws configure export-credentials --profile default --format env
+   ```
+
+   The profile chain itself is gone: the studio signs its own requests so that the same
+   code works in a Worker, and a Worker cannot read `~/.aws` (ADR-16).
+
 4. Run the two processes in two terminals:
 
 ```bash
@@ -59,6 +76,8 @@ npm run dev:node    # the studio, proxying /api to the send server
 5. In the studio: select a template, open **Send test email**, check the preflight line (sender verified, sandbox or not), pick a recipient, press **Send test**. The dialog shows the SES message id.
 
 Rehearse without sending: `npm run server:dry-run`.
+
+To exercise the exact code path that runs on Cloudflare, put the same values in `.dev.vars` (see `.dev.vars.example`) and run `npm run dev` instead. That is worth doing once before the first live deploy.
 
 ## Verifying from the command line
 
@@ -71,15 +90,18 @@ curl -s -X POST http://127.0.0.1:8787/api/send-test \
 
 ## Common SES errors
 
-| Message                          | Meaning / fix                                                                     |
-| -------------------------------- | --------------------------------------------------------------------------------- |
-| `Email address is not verified`  | From or (in sandbox) To is not a verified identity in that region.                |
-| `ExpiredToken` / `NoCredentials` | The AWS profile has no valid credentials; run `aws login` or refresh the profile. |
-| `MessageRejected: ... sandbox`   | Request production access in the SES console to send to unverified addresses.     |
-| `Throttling`                     | SES send rate exceeded; the server's own limit is separate.                       |
+Errors are reported with the AWS error type as the name, so the message reads like `MessageRejected: Email address is not verified.`
+
+| Error type                                       | Meaning / fix                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `MessageRejected`                                | From or (in sandbox) To is not a verified identity in that region.                                |
+| `AccessDeniedException`                          | The IAM key lacks `ses:SendEmail`, or a policy condition blocks this sender or recipient.         |
+| `InvalidClientTokenId` / `SignatureDoesNotMatch` | The key pair is wrong, revoked, or the machine clock is skewed (SigV4 signatures are time-bound). |
+| `ExpiredTokenException`                          | Temporary STS credentials ran out; export a fresh set including `AWS_SESSION_TOKEN`.              |
+| `NotFoundException` on preflight                 | Neither the address nor its domain is an SES identity in that region.                             |
+| `TooManyRequestsException`                       | SES send rate exceeded; the server's own limit is separate.                                       |
 
 ## What this is not
 
 - Not a production sending path. No queue, retries, templates-as-a-service or tracking.
-- Not the deployed path. The Cloudflare Worker (`docs/DEPLOYMENT.md`) cannot send until phase 1 of `docs/PLAN.md` replaces the AWS SDK with a Worker-compatible client.
-- Not authenticated. It relies on binding to loopback; do not expose the port.
+- Not authenticated yet. The Node adapter relies on binding to loopback; the deployed Worker relies on Host and Origin only, until Cloudflare Access lands (`docs/PLAN.md` phase 1, TECH_DEBT #19). Do not put a live SES key on a Worker that anyone can reach until then, unless the recipient allow-list is people you are happy for a stranger to email.

@@ -18,7 +18,16 @@
   },
   "observability": { "enabled": true },
   "vars": {
-    // Sending is off on Cloudflare until phase 1 (docs/PLAN.md) adds a Worker-compatible SES client.
+    // The Worker CAN send through Amazon SES now (server/sesSender.ts, aws4fetch).
+    // It stays off here because this target is a personal account, which must never
+    // hold AWS credentials. Turning it on needs these vars:
+    //   STUDIO_SEND_ENABLED=true, STUDIO_SEND_DRY_RUN=false,
+    //   AWS_REGION, SES_FROM_ADDRESS, SES_ALLOWED_RECIPIENTS
+    // plus two secrets, which never belong in this file:
+    //   wrangler secret put AWS_ACCESS_KEY_ID
+    //   wrangler secret put AWS_SECRET_ACCESS_KEY
+    // Put Cloudflare Access in front first: this Worker has no auth of its own.
+    // See "Turning live sending on" in docs/DEPLOYMENT.md.
     "STUDIO_SEND_ENABLED": "false",
   },
   "env": {

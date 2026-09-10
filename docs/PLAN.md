@@ -118,6 +118,8 @@ Learning items: what a Worker is (an isolate, not a container), bindings, `wrang
 
 Goal: teammates sign in through Access and can send allow-listed test emails from the deployed app.
 
+> **Progress, 2026-09-10.** Step 4 is **done** (ADR-16): `server/sesSender.ts` now runs on `aws4fetch` in both runtimes, `@aws-sdk/client-sesv2` is gone, and the Worker can send. Step 5 is documented but not performed: the IAM policy to copy is in `docs/DEPLOYMENT.md` under "Turning live sending on". Steps 1, 2, 3, 6 and 7 are open, and steps 1 to 3 are the reason live sending stays switched off on the deployed Worker: it has no authentication yet. The account move that steps 1 and 5 depend on is `docs/HANDOVER.md`.
+
 1. Put the Worker on a custom domain; create an Access application for it with an allow policy for the team's email domain.
 2. `server/auth.ts`: middleware that verifies `Cf-Access-Jwt-Assertion` against the team's JWKS (WebCrypto `subtle.verify`, cache keys for an hour) and puts `{ email }` on the Hono context. In `local`, accept a fixed developer identity from `.dev.vars` so no tunnel is needed.
 3. Replace the Host/Origin loopback check with: authenticated user required for every `/api/*` route. Keep the custom header and JSON content-type checks; they still stop cross-site forms.

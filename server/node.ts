@@ -5,13 +5,14 @@
 import { serve } from '@hono/node-server'
 import { createApp } from './app.ts'
 import { ConfigError, loadConfig } from './config.ts'
-import { createDryRunSender } from './emailSender.ts'
-import { createSesSender } from './sesSender.ts'
+import { createSender } from './createSender.ts'
 
 function main(): void {
   let config
+  let sender
   try {
     config = loadConfig(process.env)
+    sender = createSender(config)
   } catch (error) {
     if (error instanceof ConfigError) {
       console.error(`\n${error.message}\n`)
@@ -19,12 +20,6 @@ function main(): void {
     }
     throw error
   }
-
-  const sender = !config.enabled
-    ? null
-    : config.dryRun
-      ? createDryRunSender()
-      : createSesSender({ region: config.region, configurationSet: config.configurationSet })
 
   const app = createApp({ config, sender, hostPolicy: 'loopback' })
   const server = serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {

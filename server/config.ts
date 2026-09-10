@@ -1,10 +1,17 @@
 /**
  * Send-server configuration, read from environment variables.
  *
- * Credentials are NEVER read here. The AWS SDK resolves them itself from the
- * standard places (AWS_PROFILE + ~/.aws/credentials, or AWS_ACCESS_KEY_ID /
- * AWS_SECRET_ACCESS_KEY environment variables). This server only decides
- * whether sending is enabled, from which verified address, to whom, and how fast.
+ * Credentials ARE read here, unlike in the AWS-SDK version of this file.
+ * A Cloudflare Worker has no `~/.aws` and no credential provider chain, so the
+ * only way to reach Amazon SES from the Worker is an explicit key pair supplied
+ * as a Worker secret. Both runtimes therefore take the same three variables and
+ * hand them to `createSesSender`, which signs its own requests (see sesSender.ts).
+ *
+ * Nothing in this file ever logs or serialises a secret: the values are copied
+ * into the returned config and read only by the signer.
+ *
+ * Local Node users who have an AWS profile can turn it into these variables:
+ *   aws configure export-credentials --profile <name> --format env
  */
 import { z } from 'zod'
 
@@ -23,7 +30,19 @@ const envSchema = z.object({
   /** Comma-separated allow-list. Sending to anyone else is refused. */
   SES_ALLOWED_RECIPIENTS: z.string().optional(),
   SES_CONFIGURATION_SET: z.string().min(1).optional(),
+  /** Long-lived IAM user keys, or short-lived STS keys plus AWS_SESSION_TOKEN. */
+  AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  AWS_SESSION_TOKEN: z.string().min(1).optional(),
 })
+
+/** What `createSesSender` needs to sign a request. Never logged. */
+export interface AwsCredentials {
+  readonly accessKeyId: string
+  readonly secretAccessKey: string
+  /** Present only for temporary (STS) credentials. */
+  readonly sessionToken?: string
+}
 
 export type SendServerConfig =
   | { readonly enabled: false; readonly port: number; readonly reason: string }
@@ -36,6 +55,8 @@ export type SendServerConfig =
       readonly allowedRecipients: readonly string[]
       readonly configurationSet?: string
       readonly rateLimitPerMinute: number
+      /** Absent in dry-run mode, which never calls AWS. Always present for a live sender. */
+      readonly credentials?: AwsCredentials
     }
 
 export class ConfigError extends Error {}
@@ -58,11 +79,19 @@ export function loadConfig(env: Record<string, string | undefined>): SendServerC
     return { enabled: false, port, reason: 'STUDIO_SEND_ENABLED is not "true" on the send server.' }
   }
 
+  const dryRun = values.STUDIO_SEND_DRY_RUN === 'true'
+
   const missing: string[] = []
   if (!values.AWS_REGION) missing.push('AWS_REGION')
   if (!values.SES_FROM_ADDRESS) missing.push('SES_FROM_ADDRESS')
   const allowedRecipients = parseRecipients(values.SES_ALLOWED_RECIPIENTS)
   if (allowedRecipients.length === 0) missing.push('SES_ALLOWED_RECIPIENTS')
+  // A dry run never reaches AWS, so it must not demand credentials: that is what
+  // makes STUDIO_SEND_DRY_RUN=true a safe rehearsal mode for CI and a first deploy.
+  if (!dryRun) {
+    if (!values.AWS_ACCESS_KEY_ID) missing.push('AWS_ACCESS_KEY_ID')
+    if (!values.AWS_SECRET_ACCESS_KEY) missing.push('AWS_SECRET_ACCESS_KEY')
+  }
   if (missing.length > 0) {
     throw new ConfigError(
       `Sending is enabled but these variables are missing or empty: ${missing.join(', ')}. See .env.example.`,
@@ -72,12 +101,19 @@ export function loadConfig(env: Record<string, string | undefined>): SendServerC
   return {
     enabled: true,
     port,
-    dryRun: values.STUDIO_SEND_DRY_RUN === 'true',
+    dryRun,
     region: values.AWS_REGION as string,
     from: values.SES_FROM_ADDRESS as string,
     allowedRecipients,
     configurationSet: values.SES_CONFIGURATION_SET,
     rateLimitPerMinute: values.STUDIO_SEND_RATE_LIMIT_PER_MINUTE,
+    credentials: dryRun
+      ? undefined
+      : {
+          accessKeyId: values.AWS_ACCESS_KEY_ID as string,
+          secretAccessKey: values.AWS_SECRET_ACCESS_KEY as string,
+          sessionToken: values.AWS_SESSION_TOKEN,
+        },
   }
 }
 
