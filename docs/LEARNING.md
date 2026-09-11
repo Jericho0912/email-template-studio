@@ -25,6 +25,8 @@ For a developer coming from Salesforce (Apex, LWC, Flows) into this codebase. Ea
 | Bindings, `vars` and secrets                                     | Named Credentials, Custom Metadata vs Protected Settings        | `wrangler.jsonc` (`vars`), `.dev.vars.example`, `worker-configuration.d.ts` (generated) | Cloudflare docs: Configuration, Secrets                     |
 | One HTTP app, two adapters                                       | One service class called from a trigger and from a batch        | `server/app.ts` (shared), `server/node.ts`, `worker/index.ts`                           | Hono docs: Getting started (Node, Cloudflare Workers)       |
 | Same-origin policy and CSRF                                      | CSRF tokens on Visualforce forms                                | `rejectForeignRequest` in `server/app.ts` (+ test)                                      | MDN: Same-origin policy, Origin header                      |
+| API keys shown once                                              | Named Credential secret value shown at creation                 | `src/presentation/api/ApiKeysPage.tsx`, `src/application/apiKeys.ts`                    | OWASP: API keys, MDN: Web Crypto                            |
+| Webhook signatures and replay windows                            | Signed outbound integration callback                            | `src/presentation/api/ApiKeysPage.tsx` (planned UI), later `docs/WEBHOOKS.md`           | Stripe docs: webhook signatures, MDN: SubtleCrypto HMAC     |
 
 ## Suggested reading order through the code
 

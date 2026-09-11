@@ -14,15 +14,24 @@ import { cn } from '@/lib/utils'
 
 export type WorkerHealth = 'ready' | 'busy' | 'error'
 
+export type ProductPage = 'overview' | 'templates' | 'api' | 'activity' | 'settings'
+
 export interface GlobalHeaderProps {
   workspace: string
   environment: string
   workerHealth: WorkerHealth
   lastRenderMs: number | null
+  activePage: ProductPage
+  onNavigate: (page: ProductPage) => void
 }
 
-const NAV_ITEMS = ['Overview', 'Templates', 'Activity', 'Settings'] as const
-const ACTIVE_NAV: (typeof NAV_ITEMS)[number] = 'Templates'
+const NAV_ITEMS: readonly { id: ProductPage; label: string; enabled: boolean }[] = [
+  { id: 'overview', label: 'Overview', enabled: false },
+  { id: 'templates', label: 'Templates', enabled: true },
+  { id: 'api', label: 'API Keys', enabled: true },
+  { id: 'activity', label: 'Activity', enabled: false },
+  { id: 'settings', label: 'Settings', enabled: false },
+]
 
 const healthTone: Record<WorkerHealth, StatusTone> = { ready: 'success', busy: 'info', error: 'danger' }
 const healthLabel: Record<WorkerHealth, string> = {
@@ -31,7 +40,14 @@ const healthLabel: Record<WorkerHealth, string> = {
   error: 'Preview worker error',
 }
 
-export function GlobalHeader({ workspace, environment, workerHealth, lastRenderMs }: GlobalHeaderProps) {
+export function GlobalHeader({
+  workspace,
+  environment,
+  workerHealth,
+  lastRenderMs,
+  activePage,
+  onNavigate,
+}: GlobalHeaderProps) {
   return (
     <header className="bg-card border-b">
       <div className="mx-auto flex h-12 max-w-[1440px] items-center gap-3 px-6">
@@ -76,15 +92,18 @@ export function GlobalHeader({ workspace, environment, workerHealth, lastRenderM
 
         <nav aria-label="Product" className="ml-4 hidden items-center gap-1 md:flex">
           {NAV_ITEMS.map((item) => {
-            const active = item === ACTIVE_NAV
+            const active = item.id === activePage
             return (
-              <a
-                key={item}
-                href="#"
+              <button
+                key={item.id}
+                type="button"
                 aria-current={active ? 'page' : undefined}
-                onClick={(event) => {
-                  event.preventDefault()
-                  if (!active) toast.info(`${item} is planned for a later milestone.`)
+                onClick={() => {
+                  if (item.enabled) {
+                    onNavigate(item.id)
+                    return
+                  }
+                  toast.info(`${item.label} is planned for a later milestone.`)
                 }}
                 className={cn(
                   'focus-visible:ring-ring/50 rounded-md px-2.5 py-1 text-sm transition-colors outline-none focus-visible:ring-3',
@@ -93,8 +112,8 @@ export function GlobalHeader({ workspace, environment, workerHealth, lastRenderM
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                {item}
-              </a>
+                {item.label}
+              </button>
             )
           })}
         </nav>

@@ -7,6 +7,9 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // Named explicitly because this login can see several accounts; without it
+  // wrangler has to ask which one to deploy to.
+  "account_id": "d0fa6b3d72170539438800a907ec5323",
   "name": "email-template-studio",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-09-09",
