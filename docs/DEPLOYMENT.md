@@ -68,17 +68,43 @@ guards the hostname it is attached to; the `*.workers.dev` hostname stays reacha
 anyone can send a header of their own invention to it. Checking the signature against
 the team's published keys is what turns that header into proof.
 
-Three modes, chosen by environment variables:
+Four modes, chosen by environment variables. The first one that matches wins:
 
-| Variables set                          | Mode               | Use                                              |
-| -------------------------------------- | ------------------ | ------------------------------------------------ |
-| `ACCESS_TEAM_DOMAIN` + `ACCESS_AUD`    | `cloudflare-access` | Production. Verifies a real Access JWT.          |
-| `STUDIO_DEV_IDENTITY`                  | `developer`        | Local and Playwright only. Trusts a fixed email. |
-| neither                                | `disabled`         | Every `/api/*` request gets 401.                 |
+| Variables set                       | Mode                | Use                                                    |
+| ----------------------------------- | ------------------- | ------------------------------------------------------ |
+| `ACCESS_TEAM_DOMAIN` + `ACCESS_AUD` | `cloudflare-access` | Production. Verifies a real Access JWT.                |
+| `STUDIO_PASSWORD`                   | `password`          | A shared password, for a test deployment without Access. |
+| `STUDIO_DEV_IDENTITY`               | `developer`         | Local and Playwright only. Trusts a fixed email.       |
+| none of them                        | `disabled`          | Every `/api/*` request gets 401.                       |
 
-Access wins if both are set, so a forgotten `STUDIO_DEV_IDENTITY` can never downgrade a
-real deployment. Setting only one of the two Access variables is refused outright rather
-than quietly falling back.
+The order is what makes this safe to leave configured: a forgotten `STUDIO_DEV_IDENTITY`
+or `STUDIO_PASSWORD` can never downgrade a deployment that has real Access set up.
+Setting only one of the two Access variables is refused outright rather than quietly
+falling back to something weaker.
+
+### The shared password gate
+
+A stop-gap for a test deployment that needs *something* in front of it before Access
+exists. Be clear about what it is: it proves the caller knew a secret. It does **not**
+say who they are, it cannot be revoked for one person without changing it for everyone,
+and anyone told the password can pass it on. Move to Access before the recipient
+allow-list contains anyone outside the team.
+
+What it does do properly: the password is exchanged once at `POST /api/session` for an
+HttpOnly, `SameSite=Strict` cookie holding an HMAC of the session expiry — the password
+itself is never stored in the cookie or readable by page scripts. Comparisons are
+constant time, wrong guesses are throttled to 10 a minute, and sessions expire after 12
+hours. The React sign-in screen is a convenience; the server refuses unauthenticated
+`/api/*` requests whatever the browser renders.
+
+```bash
+# Generate one and store it as a secret. Minimum 12 characters; shorter is refused.
+openssl rand -base64 24
+npx wrangler secret put STUDIO_PASSWORD
+```
+
+It is a **secret**, so it goes through `wrangler secret put` and never into
+`wrangler.jsonc`. Locally, put it in `.dev.vars`.
 
 **1. Give the Worker a hostname in a zone you control.** Access cannot protect a
 `*.workers.dev` URL; it needs a hostname in one of your Cloudflare zones. Add a custom

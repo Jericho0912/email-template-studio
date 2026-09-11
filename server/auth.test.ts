@@ -11,7 +11,13 @@ import {
   createAccessAuthenticator,
   createAuthenticator,
   createDeveloperAuthenticator,
+  checkPassword,
   createDisabledAuthenticator,
+  createPasswordAuthenticator,
+  createSessionToken,
+  readCookie,
+  SESSION_COOKIE,
+  verifySessionToken,
   loadAuthConfig,
 } from './auth.ts'
 
@@ -264,5 +270,90 @@ describe('createAuthenticator', () => {
     expect(createAuthenticator({ mode: 'cloudflare-access', teamDomain: TEAM_DOMAIN, aud: AUD }).mode).toBe(
       'cloudflare-access',
     )
+    expect(createAuthenticator({ mode: 'password', password: 'a-long-enough-password' }).mode).toBe('password')
+  })
+})
+
+describe('password gate', () => {
+  const PASSWORD = 'correct-horse-battery-staple'
+  const nowSeconds = Math.floor(NOW_MS / 1000)
+
+  it('accepts the right password and refuses the wrong one', async () => {
+    expect(await checkPassword(PASSWORD, PASSWORD)).toBe(true)
+    expect(await checkPassword('wrong', PASSWORD)).toBe(false)
+    expect(await checkPassword('', PASSWORD)).toBe(false)
+    // A guess that is a prefix of the real password must not be treated as close.
+    expect(await checkPassword(PASSWORD.slice(0, -1), PASSWORD)).toBe(false)
+  })
+
+  it('mints a token that verifies with the same password', async () => {
+    const token = await createSessionToken(PASSWORD, nowSeconds)
+    expect(await verifySessionToken(token, PASSWORD, nowSeconds)).toBe(true)
+  })
+
+  it('refuses a token signed with a different password', async () => {
+    const token = await createSessionToken('some-other-password', nowSeconds)
+    expect(await verifySessionToken(token, PASSWORD, nowSeconds)).toBe(false)
+  })
+
+  it('refuses an expired token', async () => {
+    const token = await createSessionToken(PASSWORD, nowSeconds, 60)
+    expect(await verifySessionToken(token, PASSWORD, nowSeconds + 3600)).toBe(false)
+  })
+
+  it('refuses a token whose expiry was edited to a later time', async () => {
+    const token = await createSessionToken(PASSWORD, nowSeconds, 60)
+    const forged = `${nowSeconds + 999_999}.${token.split('.')[1]}`
+    expect(await verifySessionToken(forged, PASSWORD, nowSeconds)).toBe(false)
+  })
+
+  it('refuses malformed tokens instead of throwing', async () => {
+    for (const bad of ['', '.', 'nodot', 'abc.def', `${nowSeconds}.`, `.${nowSeconds}`]) {
+      expect(await verifySessionToken(bad, PASSWORD, nowSeconds)).toBe(false)
+    }
+  })
+
+  it('authenticates a request carrying a valid session cookie', async () => {
+    const auth = createPasswordAuthenticator(PASSWORD, { now: () => NOW_MS })
+    const token = await createSessionToken(PASSWORD, nowSeconds)
+    const headers = new Headers({ cookie: `${SESSION_COOKIE}=${token}` })
+    expect(await auth.authenticate(headers)).toMatchObject({ ok: true })
+  })
+
+  it('refuses a request with no cookie, and one with a forged cookie', async () => {
+    const auth = createPasswordAuthenticator(PASSWORD, { now: () => NOW_MS })
+    expect(await auth.authenticate(new Headers())).toMatchObject({ ok: false })
+    const forged = new Headers({ cookie: `${SESSION_COOKIE}=999999999.notasignature` })
+    expect(await auth.authenticate(forged)).toMatchObject({ ok: false })
+  })
+
+  it('finds its cookie among others', () => {
+    expect(readCookie(`a=1; ${SESSION_COOKIE}=xyz; b=2`, SESSION_COOKIE)).toBe('xyz')
+    expect(readCookie('other=1', SESSION_COOKIE)).toBeUndefined()
+    expect(readCookie(null, SESSION_COOKIE)).toBeUndefined()
+  })
+
+  it('refuses a password shorter than the minimum rather than pretending to protect', () => {
+    const config = loadAuthConfig({ STUDIO_PASSWORD: 'short' })
+    expect(config.mode).toBe('none')
+    expect(config.mode === 'none' && config.reason).toContain('at least')
+  })
+
+  it('uses the password mode for a long enough password', () => {
+    expect(loadAuthConfig({ STUDIO_PASSWORD: PASSWORD })).toEqual({ mode: 'password', password: PASSWORD })
+  })
+
+  it('prefers Cloudflare Access over a password when both are set', () => {
+    const config = loadAuthConfig({
+      ACCESS_TEAM_DOMAIN: TEAM_DOMAIN,
+      ACCESS_AUD: AUD,
+      STUDIO_PASSWORD: PASSWORD,
+    })
+    expect(config.mode).toBe('cloudflare-access')
+  })
+
+  it('prefers a password over a developer identity', () => {
+    const config = loadAuthConfig({ STUDIO_PASSWORD: PASSWORD, STUDIO_DEV_IDENTITY: 'dev@example.test' })
+    expect(config.mode).toBe('password')
   })
 })

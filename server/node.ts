@@ -38,7 +38,13 @@ function main(): void {
   })
   const authenticator = createAuthenticator(authConfig)
 
-  const app = createApp({ config, sender, hostPolicy: 'loopback', authenticator })
+  const app = createApp({
+    config,
+    sender,
+    hostPolicy: 'loopback',
+    authenticator,
+    passwordGate: authConfig.mode === 'password' ? { password: authConfig.password } : undefined,
+  })
   const server = serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
     const base = `http://127.0.0.1:${info.port}`
     if (config.enabled && sender) {
@@ -69,6 +75,8 @@ function describeAuth(authConfig: AuthConfig): string {
   switch (authConfig.mode) {
     case 'cloudflare-access':
       return `Cloudflare Access (${authConfig.teamDomain})`
+    case 'password':
+      return 'shared password (STUDIO_PASSWORD)'
     case 'developer':
       return `${authConfig.email} (local developer identity)`
     case 'none':

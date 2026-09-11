@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createApp,
   createRateLimiter,
+  LOGIN_ATTEMPTS_PER_MINUTE,
   MAX_HTML_BYTES,
   PREFLIGHT_CACHE_MS,
   rejectForeignRequest,
@@ -9,7 +10,7 @@ import {
   TEST_SUBJECT_PREFIX,
 } from './app.ts'
 import type { SendServerConfig } from './config.ts'
-import { createDeveloperAuthenticator, createDisabledAuthenticator } from './auth.ts'
+import { createDeveloperAuthenticator, createDisabledAuthenticator, createPasswordAuthenticator } from './auth.ts'
 import { createDryRunSender, type EmailSender } from './emailSender.ts'
 
 /** Every existing test predates authentication; they all run as one known developer. */
@@ -345,5 +346,92 @@ describe('authentication', () => {
       await app.request('/api/send-test/status', { headers: { host: 'localhost:8787' } })
     ).json()
     expect(body).toMatchObject({ user: 'tester@example.test' })
+  })
+})
+
+describe('the password sign-in route', () => {
+  const PASSWORD = 'correct-horse-battery-staple'
+  const sender = createDryRunSender(() => {})
+
+  /** An app in the shared-password mode, exactly as the Worker builds it. */
+  function passwordApp(now = () => 1_760_000_000_000) {
+    return createApp({
+      config: enabledConfig,
+      sender,
+      authenticator: createPasswordAuthenticator(PASSWORD, { now }),
+      passwordGate: { password: PASSWORD },
+      now,
+    })
+  }
+
+  function signIn(app: ReturnType<typeof createApp>, password: string) {
+    return app.request('/api/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', host: 'localhost:8787' },
+      body: JSON.stringify({ password }),
+    })
+  }
+
+  it('refuses the API before sign-in and names the mode so the UI can prompt', async () => {
+    const response = await passwordApp().request('/api/send-test/status', {
+      headers: { host: 'localhost:8787' },
+    })
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ code: 'unauthenticated', mode: 'password' })
+  })
+
+  it('sets an HttpOnly, SameSite cookie for the right password', async () => {
+    const response = await signIn(passwordApp(), PASSWORD)
+    expect(response.status).toBe(200)
+    const cookie = response.headers.get('set-cookie') ?? ''
+    expect(cookie).toContain('studio_session=')
+    expect(cookie).toContain('HttpOnly')
+    expect(cookie).toContain('SameSite=Strict')
+    // The password itself must never travel back to the browser.
+    expect(cookie).not.toContain(PASSWORD)
+  })
+
+  it('lets the API through once the cookie is presented', async () => {
+    const app = passwordApp()
+    const cookie = (await signIn(app, PASSWORD)).headers.get('set-cookie') ?? ''
+    const sessionCookie = cookie.split(';')[0]
+    const response = await app.request('/api/send-test/status', {
+      headers: { host: 'localhost:8787', cookie: sessionCookie },
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ user: 'shared-password' })
+  })
+
+  it('refuses the wrong password without a cookie', async () => {
+    const response = await signIn(passwordApp(), 'not-the-password')
+    expect(response.status).toBe(401)
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(await response.json()).toMatchObject({ code: 'invalid-password' })
+  })
+
+  it('throttles guessing', async () => {
+    const app = passwordApp(() => 1_760_000_000_000)
+    for (let attempt = 0; attempt < LOGIN_ATTEMPTS_PER_MINUTE; attempt += 1) {
+      expect((await signIn(app, 'wrong')).status).toBe(401)
+    }
+    const throttled = await signIn(app, 'wrong')
+    expect(throttled.status).toBe(429)
+    // Still throttled even if the next guess happens to be correct.
+    expect((await signIn(app, PASSWORD)).status).toBe(429)
+  })
+
+  it('clears the cookie on sign out', async () => {
+    const response = await passwordApp().request('/api/session', {
+      method: 'DELETE',
+      headers: { host: 'localhost:8787' },
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0')
+  })
+
+  it('has no sign-in route at all when there is no password gate', async () => {
+    const app = createApp({ authenticator: testAuth, config: enabledConfig, sender })
+    const response = await signIn(app, PASSWORD)
+    expect(response.status).toBe(404)
   })
 })

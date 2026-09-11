@@ -26,3 +26,7 @@
 # Both are required together; setting only one refuses all requests on purpose.
 # ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
 # ACCESS_AUD=<Application Audience (AUD) tag from the Access application>
+
+# Shared password gate, when Cloudflare Access is not set up yet. Minimum 12 characters.
+# Generate one with: openssl rand -base64 24
+# STUDIO_PASSWORD=

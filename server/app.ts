@@ -10,7 +10,13 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { Authenticator, Identity } from './auth.ts'
-import { createDisabledAuthenticator } from './auth.ts'
+import {
+  checkPassword,
+  createDisabledAuthenticator,
+  createSessionToken,
+  SESSION_COOKIE,
+  SESSION_TTL_SECONDS,
+} from './auth.ts'
 import type { SendServerConfig } from './config.ts'
 import type { EmailSender, SenderPreflight } from './emailSender.ts'
 
@@ -57,9 +63,22 @@ export interface AppDependencies {
    * forgets to pass one fails closed instead of serving an open API.
    */
   readonly authenticator?: Authenticator
+  /**
+   * Set only in the shared-password mode. Enables `POST /api/session`, which
+   * trades the password for a signed cookie, and `DELETE /api/session`, which
+   * clears it. Absent in every other mode, so the endpoint simply does not
+   * exist when there is no password to check.
+   */
+  readonly passwordGate?: { readonly password: string }
   /** Injectable clock for tests. */
   readonly now?: () => number
 }
+
+/** The sign-in route, which cannot itself require a signed-in caller. */
+export const SESSION_ROUTE = '/api/session'
+
+/** Wrong guesses allowed per minute before the gate stops answering. */
+export const LOGIN_ATTEMPTS_PER_MINUTE = 10
 
 /** How long a preflight result is reused before SES is asked again. */
 export const PREFLIGHT_CACHE_MS = 60_000
@@ -71,10 +90,12 @@ export function createApp({
   authenticator = createDisabledAuthenticator(
     'No authenticator was configured for this server, so every API request is refused.',
   ),
+  passwordGate,
   now = () => Date.now(),
 }: AppDependencies) {
   const app = new Hono<{ Variables: Variables }>()
   const limiter = createRateLimiter(config.enabled ? config.rateLimitPerMinute : 0, now)
+  const loginLimiter = createRateLimiter(LOGIN_ATTEMPTS_PER_MINUTE, now)
   const preflight = createPreflightCache(config, sender, now)
 
   // Rejects foreign Host (DNS rebinding, loopback policy only) and cross-site
@@ -90,13 +111,68 @@ export function createApp({
   // This runs after the Host/Origin check so an unauthenticated cross-site
   // request is still refused for the more specific reason.
   app.use('/api/*', async (c, next) => {
+    // The sign-in route is how a caller becomes authenticated, so it cannot
+    // require an authenticated caller. It does its own password check.
+    if (c.req.path === SESSION_ROUTE) return next()
     const result = await authenticator.authenticate(c.req.raw.headers)
     if (!result.ok) {
-      return c.json({ status: 'error', code: 'unauthenticated', message: result.reason }, 401)
+      return c.json(
+        // `mode` lets the browser tell "show a password box" apart from
+        // "redirect to the identity provider". It names a mechanism, not a secret.
+        { status: 'error', code: 'unauthenticated', mode: authenticator.mode, message: result.reason },
+        401,
+      )
     }
     c.set('identity', result.identity)
     await next()
   })
+
+  if (passwordGate) {
+    /** Trades the shared password for a signed, HttpOnly session cookie. */
+    app.post(SESSION_ROUTE, async (c) => {
+      if (!c.req.header('content-type')?.toLowerCase().startsWith('application/json')) {
+        return c.json(
+          { status: 'error', code: 'invalid-request', message: 'Content-Type must be application/json.' },
+          415,
+        )
+      }
+      // Throttled before the password is even looked at, so this is not a
+      // convenient oracle to guess against.
+      if (!loginLimiter.tryAcquire()) {
+        return c.json(
+          { status: 'error', code: 'rate-limited', message: 'Too many attempts. Wait a minute and try again.' },
+          429,
+        )
+      }
+
+      let body: unknown
+      try {
+        body = await c.req.json()
+      } catch {
+        return c.json({ status: 'error', code: 'invalid-request', message: 'Request body must be JSON.' }, 400)
+      }
+      const parsed = z.object({ password: z.string().min(1).max(200) }).safeParse(body)
+      if (!parsed.success) {
+        return c.json({ status: 'error', code: 'invalid-request', message: 'A password is required.' }, 400)
+      }
+
+      if (!(await checkPassword(parsed.data.password, passwordGate.password))) {
+        // Deliberately vague, and deliberately the same shape and timing as a
+        // success: nothing here should help someone narrow down the password.
+        return c.json({ status: 'error', code: 'invalid-password', message: 'That password is not correct.' }, 401)
+      }
+
+      const token = await createSessionToken(passwordGate.password, Math.floor(now() / 1000))
+      c.header('set-cookie', sessionCookie(token, c.req.url, SESSION_TTL_SECONDS))
+      return c.json({ status: 'signed-in', expiresInSeconds: SESSION_TTL_SECONDS })
+    })
+
+    /** Signs out by replacing the cookie with an already-expired one. */
+    app.delete(SESSION_ROUTE, (c) => {
+      c.header('set-cookie', sessionCookie('', c.req.url, 0))
+      return c.json({ status: 'signed-out' })
+    })
+  }
 
   app.get('/api/send-test/status', async (c) => {
     // The signed-in email is echoed back so the UI can show who Access let in.
@@ -294,6 +370,27 @@ function hostnameOf(hostHeader: string): string {
   const bracketed = /^(\[[^\]]+\])(?::\d+)?$/.exec(hostHeader)
   if (bracketed) return bracketed[1]
   return hostHeader.replace(/:\d+$/, '').toLowerCase()
+}
+
+/**
+ * Builds the Set-Cookie value for the session.
+ *
+ * - HttpOnly: page scripts cannot read it, so an injected script cannot steal the session
+ * - SameSite=Strict: the browser will not attach it to requests started by another site
+ * - Secure: only over HTTPS. Omitted on plain http://localhost, where the browser
+ *   would otherwise drop the cookie and local development would silently not work.
+ */
+function sessionCookie(token: string, requestUrl: string, maxAgeSeconds: number): string {
+  const isHttps = requestUrl.startsWith('https://')
+  const attributes = [
+    `${SESSION_COOKIE}=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+    `Max-Age=${maxAgeSeconds}`,
+  ]
+  if (isHttps) attributes.push('Secure')
+  return attributes.join('; ')
 }
 
 /** One line, bounded length: enough for a developer to act on, no stack traces. */

@@ -42,9 +42,15 @@ export type AuthResult = { readonly ok: true; readonly identity: Identity } | { 
 /** What the API calls on every `/api/*` request. */
 export interface Authenticator {
   /** A short label used in logs and in the status route, never a secret. */
-  readonly mode: 'cloudflare-access' | 'developer' | 'disabled'
+  readonly mode: 'cloudflare-access' | 'developer' | 'password' | 'disabled'
   authenticate(headers: Headers): Promise<AuthResult>
 }
+
+/** Name of the cookie the password gate sets once the right password is given. */
+export const SESSION_COOKIE = 'studio_session'
+
+/** How long one password sign-in lasts before the gate asks again. */
+export const SESSION_TTL_SECONDS = 12 * 60 * 60
 
 /** The header Cloudflare Access adds to every request it forwards. */
 export const ACCESS_JWT_HEADER = 'cf-access-jwt-assertion'
@@ -73,6 +79,7 @@ const CLOCK_SKEW_SECONDS = 60
  */
 export type AuthConfig =
   | { readonly mode: 'cloudflare-access'; readonly teamDomain: string; readonly aud: string }
+  | { readonly mode: 'password'; readonly password: string }
   | { readonly mode: 'developer'; readonly email: string }
   | { readonly mode: 'none'; readonly reason: string }
 
@@ -87,6 +94,7 @@ export type AuthConfig =
 export function loadAuthConfig(env: Record<string, string | undefined>): AuthConfig {
   const teamDomain = clean(env.ACCESS_TEAM_DOMAIN)
   const aud = clean(env.ACCESS_AUD)
+  const password = clean(env.STUDIO_PASSWORD)
   const devIdentity = clean(env.STUDIO_DEV_IDENTITY)
 
   if (teamDomain && aud) {
@@ -99,16 +107,30 @@ export function loadAuthConfig(env: Record<string, string | undefined>): AuthCon
       reason: 'Cloudflare Access is half configured: ACCESS_TEAM_DOMAIN and ACCESS_AUD are both required.',
     }
   }
+  if (password) {
+    // A short password is worse than none, because it invites the belief that
+    // the site is protected. Refuse rather than pretend.
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return {
+        mode: 'none',
+        reason: `STUDIO_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      }
+    }
+    return { mode: 'password', password }
+  }
   if (devIdentity) {
     return { mode: 'developer', email: devIdentity }
   }
   return {
     mode: 'none',
     reason:
-      'No authentication is configured. Set ACCESS_TEAM_DOMAIN and ACCESS_AUD (production) ' +
-      'or STUDIO_DEV_IDENTITY (local only). See docs/DEPLOYMENT.md.',
+      'No authentication is configured. Set ACCESS_TEAM_DOMAIN and ACCESS_AUD (production), ' +
+      'STUDIO_PASSWORD (shared password gate) or STUDIO_DEV_IDENTITY (local only). See docs/DEPLOYMENT.md.',
   }
 }
+
+/** Short enough to type, long enough that guessing it is not worth trying. */
+export const MIN_PASSWORD_LENGTH = 12
 
 function clean(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
@@ -141,11 +163,135 @@ export function createAuthenticator(config: AuthConfig, options: AuthenticatorOp
   switch (config.mode) {
     case 'cloudflare-access':
       return createAccessAuthenticator(config.teamDomain, config.aud, options)
+    case 'password':
+      return createPasswordAuthenticator(config.password, options)
     case 'developer':
       return createDeveloperAuthenticator(config.email)
     case 'none':
       return createDisabledAuthenticator(config.reason)
   }
+}
+
+// ---------------------------------------------------------------------------
+// The shared password gate
+// ---------------------------------------------------------------------------
+
+/**
+ * A single shared password, exchanged once for a signed session cookie.
+ *
+ * Be clear about what this is and is not. It proves someone knew a secret; it
+ * does NOT tell you who they are, it cannot be revoked for one person without
+ * changing it for everyone, and anyone who is told the password can pass it on.
+ * Cloudflare Access gives per-person identity and revocation; this does not.
+ * It exists so a test deployment is not simply open to the internet.
+ *
+ * What it does do properly:
+ * - the password is never stored in the cookie, only an HMAC of the expiry
+ * - the cookie is HttpOnly, so page scripts cannot read it
+ * - comparisons are constant time, so response timing does not leak the secret
+ * - sessions expire, and the signature is checked before the expiry is believed
+ */
+export function createPasswordAuthenticator(
+  password: string,
+  options: AuthenticatorOptions = {},
+): Authenticator {
+  const now = options.now ?? (() => Date.now())
+  return {
+    mode: 'password',
+    async authenticate(headers) {
+      const cookie = readCookie(headers.get('cookie'), SESSION_COOKIE)
+      if (!cookie) {
+        return { ok: false, reason: 'This studio is password protected. Sign in to continue.' }
+      }
+      const valid = await verifySessionToken(cookie, password, Math.floor(now() / 1000))
+      if (!valid) {
+        return { ok: false, reason: 'Your session has expired or is not valid. Sign in again.' }
+      }
+      // There is no person behind a shared password, and the log should not
+      // imply otherwise.
+      return { ok: true, identity: { email: 'shared-password' } }
+    },
+  }
+}
+
+/** True when `candidate` is the configured password. Constant time. */
+export async function checkPassword(candidate: string, password: string): Promise<boolean> {
+  // Hashing first means the comparison is over two fixed-length digests, so a
+  // wrong-length guess cannot be detected from how long the compare took.
+  const [a, b] = await Promise.all([sha256(candidate), sha256(password)])
+  return constantTimeEqual(a, b)
+}
+
+/** Mints `<expiry>.<signature>` for the session cookie. */
+export async function createSessionToken(
+  password: string,
+  nowSeconds: number,
+  ttlSeconds: number = SESSION_TTL_SECONDS,
+): Promise<string> {
+  const expiry = nowSeconds + ttlSeconds
+  return `${expiry}.${await signExpiry(expiry, password)}`
+}
+
+/** Checks the signature FIRST, then the expiry it claims. */
+export async function verifySessionToken(
+  token: string,
+  password: string,
+  nowSeconds: number,
+): Promise<boolean> {
+  const separator = token.indexOf('.')
+  if (separator <= 0) return false
+  const expiryText = token.slice(0, separator)
+  const signature = token.slice(separator + 1)
+  if (!/^\d+$/.test(expiryText)) return false
+
+  // Verify before trusting: an unsigned expiry is just a number the caller chose.
+  const expected = await signExpiry(Number(expiryText), password)
+  if (!constantTimeEqual(new TextEncoder().encode(signature), new TextEncoder().encode(expected))) {
+    return false
+  }
+  return Number(expiryText) > nowSeconds
+}
+
+/** HMAC-SHA256 over the expiry, keyed by the password, as base64url. */
+async function signExpiry(expiry: number, password: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`session:${expiry}`))
+  return base64UrlEncode(new Uint8Array(signature))
+}
+
+async function sha256(value: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))
+}
+
+/** Compares without an early exit, so the time taken does not reveal the prefix. */
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  let difference = 0
+  for (let index = 0; index < a.length; index += 1) difference |= a[index] ^ b[index]
+  return difference === 0
+}
+
+/** Reads one cookie out of a Cookie header, without a cookie library. */
+export function readCookie(header: string | null, name: string): string | undefined {
+  if (!header) return undefined
+  for (const part of header.split(';')) {
+    const separator = part.indexOf('=')
+    if (separator < 0) continue
+    if (part.slice(0, separator).trim() === name) return part.slice(separator + 1).trim()
+  }
+  return undefined
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 /** Trusts a fixed email. Local development and tests only. */
