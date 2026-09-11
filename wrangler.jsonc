@@ -18,17 +18,27 @@
   },
   "observability": { "enabled": true },
   "vars": {
-    // The Worker CAN send through Amazon SES now (server/sesSender.ts, aws4fetch).
-    // It stays off here because this target is a personal account, which must never
-    // hold AWS credentials. Turning it on needs these vars:
-    //   STUDIO_SEND_ENABLED=true, STUDIO_SEND_DRY_RUN=false,
-    //   AWS_REGION, SES_FROM_ADDRESS, SES_ALLOWED_RECIPIENTS
-    // plus two secrets, which never belong in this file:
-    //   wrangler secret put AWS_ACCESS_KEY_ID
-    //   wrangler secret put AWS_SECRET_ACCESS_KEY
-    // Put Cloudflare Access in front first: this Worker has no auth of its own.
-    // See "Turning live sending on" in docs/DEPLOYMENT.md.
-    "STUDIO_SEND_ENABLED": "false",
+    // Live Amazon SES sending, on this account, deliberately (docs/DEPLOYMENT.md).
+    //
+    // This deploy target is a personal account, which docs/HANDOVER.md says should
+    // not hold AWS credentials. That rule is being set aside on purpose while this
+    // is a test deployment with a test sender and a one-address allow-list. Revisit
+    // it before the allow-list contains anyone outside the team.
+    //
+    // THREE SECRETS ARE REQUIRED before deploying with this on. They never belong
+    // in this file, and without them the Worker answers 500 on every /api/* route:
+    //   npx wrangler secret put STUDIO_PASSWORD        (the shared password gate)
+    //   npx wrangler secret put AWS_ACCESS_KEY_ID
+    //   npx wrangler secret put AWS_SECRET_ACCESS_KEY
+    //
+    // Use long-lived IAM user keys, not SSO/STS ones: temporary credentials expire
+    // within the hour and the Worker cannot refresh them, so sending would simply
+    // stop. See "Turning live sending on" in docs/DEPLOYMENT.md.
+    "STUDIO_SEND_ENABLED": "true",
+    "STUDIO_SEND_DRY_RUN": "false",
+    "AWS_REGION": "ap-southeast-2",
+    "SES_FROM_ADDRESS": "testing@swarm.camp",
+    "SES_ALLOWED_RECIPIENTS": "echo@swarm.work",
   },
   "env": {
     // Playwright: exercises the send dialog end to end without AWS (fake message ids).
