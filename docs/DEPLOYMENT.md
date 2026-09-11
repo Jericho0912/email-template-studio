@@ -57,11 +57,75 @@ flowchart LR
 
 Rule: `vars` in `wrangler.jsonc` are for non-secret settings and are committed. Secrets go through `wrangler secret put` (or `.dev.vars` locally) and never into the file.
 
+## Putting Cloudflare Access in front
+
+Every `/api/*` route needs a caller the server can name. `server/auth.ts` verifies the
+JSON Web Token that Cloudflare Access puts in the `Cf-Access-Jwt-Assertion` header, and
+refuses the request with 401 when it cannot.
+
+**The Worker verifies the token itself rather than trusting the header.** Access only
+guards the hostname it is attached to; the `*.workers.dev` hostname stays reachable and
+anyone can send a header of their own invention to it. Checking the signature against
+the team's published keys is what turns that header into proof.
+
+Three modes, chosen by environment variables:
+
+| Variables set                          | Mode               | Use                                              |
+| -------------------------------------- | ------------------ | ------------------------------------------------ |
+| `ACCESS_TEAM_DOMAIN` + `ACCESS_AUD`    | `cloudflare-access` | Production. Verifies a real Access JWT.          |
+| `STUDIO_DEV_IDENTITY`                  | `developer`        | Local and Playwright only. Trusts a fixed email. |
+| neither                                | `disabled`         | Every `/api/*` request gets 401.                 |
+
+Access wins if both are set, so a forgotten `STUDIO_DEV_IDENTITY` can never downgrade a
+real deployment. Setting only one of the two Access variables is refused outright rather
+than quietly falling back.
+
+**1. Give the Worker a hostname in a zone you control.** Access cannot protect a
+`*.workers.dev` URL; it needs a hostname in one of your Cloudflare zones. Add a custom
+domain to the Worker (Workers & Pages -> your Worker -> Settings -> Domains & Routes),
+for example `studio.swarm.work`.
+
+**2. Create the Access application.** Zero Trust -> Access -> Applications -> Add an
+application -> Self-hosted. Point it at the hostname from step 1 and add a policy that
+allows the addresses or email domain that should get in.
+
+**3. Copy the two identifiers.**
+
+- **Team domain**: Zero Trust -> Settings -> Custom Pages, shown as `<team>.cloudflareaccess.com`.
+- **Application Audience (AUD) tag**: on the application's Overview tab. It is an
+  identifier, not a secret, but it is what stops a token minted for another application
+  in the same team from being replayed against this one.
+
+**4. Set them as `vars` for that environment** in `wrangler.jsonc` (neither is secret):
+
+```jsonc
+"vars": {
+  "ACCESS_TEAM_DOMAIN": "yourteam.cloudflareaccess.com",
+  "ACCESS_AUD": "8a7b6c5d4e3f...",
+}
+```
+
+**5. Deploy and check.** A request with no token must be refused:
+
+```bash
+npm run deploy
+curl -s https://studio.swarm.work/api/send-test/status   # through Access: 200 once signed in
+curl -s https://email-template-studio.<subdomain>.workers.dev/api/send-test/status
+# expect {"status":"error","code":"unauthenticated",...}
+```
+
+The second command is the one that matters: it proves the bypass hostname is closed.
+Once Access is live, disable the `workers.dev` route entirely (Settings -> Domains &
+Routes) so the only way in is through the protected hostname.
+
+Locally, `npm run dev` has no Access in front of it, so put `STUDIO_DEV_IDENTITY=you@swarm.work`
+in `.dev.vars` (see `.dev.vars.example`). Without it, the local API answers 401 as well.
+
 ## Turning live sending on
 
 The Worker can reach Amazon SES (ADR-16). Whether it _does_ is one variable plus two secrets, per environment.
 
-> **Read this first.** The deployed studio has **no authentication** (TECH_DEBT #19). A live SES key on a public Worker means anyone with the URL can trigger a send. Three guards contain the damage: sends go only to `SES_ALLOWED_RECIPIENTS`, every subject is prefixed `[TEST]`, and the rate limit is 5 per minute. That is acceptable for a handful of internal addresses on a URL nobody has published. It is **not** acceptable once the allow-list contains a client. Put Cloudflare Access in front first (`docs/PLAN.md` phase 1), which is step 5 of the handover in `docs/HANDOVER.md`.
+> **Read this first.** Do the Access setup above before turning sending on. A live SES key on a public Worker means anyone with the URL can trigger a send. Three further guards contain the damage: sends go only to `SES_ALLOWED_RECIPIENTS`, every subject is prefixed `[TEST]`, and the rate limit is 5 per minute. Those are a backstop, not a substitute for authentication.
 
 **1. Make the IAM user.** One user, no console access, one inline policy. The policy is the real backstop: our own code checks the allow-list, but the policy is what stops a mistake or a stolen key from mailing the world.
 

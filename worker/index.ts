@@ -15,6 +15,7 @@
  * it is switched on per environment with STUDIO_SEND_ENABLED and three secrets.
  */
 import { createApp } from '../server/app.ts'
+import { createAuthenticator, loadAuthConfig } from '../server/auth.ts'
 import { ConfigError, loadConfig } from '../server/config.ts'
 import { createSender } from '../server/createSender.ts'
 
@@ -29,8 +30,17 @@ function variablesOf(env: Env): Record<string, string | undefined> {
 }
 
 function buildApp(env: Env): App {
-  const config = loadConfig(variablesOf(env))
-  return createApp({ config, sender: createSender(config), hostPolicy: 'same-origin' })
+  const variables = variablesOf(env)
+  const config = loadConfig(variables)
+  // Cloudflare Access in production; a fixed developer identity for `npm run dev`
+  // and the Playwright suite; otherwise an authenticator that refuses everything.
+  const authenticator = createAuthenticator(loadAuthConfig(variables))
+  return createApp({
+    config,
+    sender: createSender(config),
+    hostPolicy: 'same-origin',
+    authenticator,
+  })
 }
 
 export default {

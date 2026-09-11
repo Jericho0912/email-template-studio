@@ -18,3 +18,11 @@
 # SES_FROM_ADDRESS=verified-sender@example.com
 # SES_ALLOWED_RECIPIENTS=you@example.com
 # SES_CONFIGURATION_SET=
+
+# Who the API runs as locally. Without this (or ACCESS_* below) every /api/* call is 401.
+# STUDIO_DEV_IDENTITY=you@swarm.work
+
+# Production only: verify a real Cloudflare Access JWT instead of trusting the line above.
+# Both are required together; setting only one refuses all requests on purpose.
+# ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
+# ACCESS_AUD=<Application Audience (AUD) tag from the Access application>

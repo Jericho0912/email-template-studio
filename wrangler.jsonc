@@ -39,6 +39,8 @@
         "AWS_REGION": "us-east-1",
         "SES_FROM_ADDRESS": "studio@example.test",
         "SES_ALLOWED_RECIPIENTS": "qa@example.test,second@example.test",
+        // No Access in front of the test build, so the API runs as this fixed identity.
+        "STUDIO_DEV_IDENTITY": "playwright@example.test",
       },
     },
   },

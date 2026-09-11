@@ -9,6 +9,8 @@
  */
 import { Hono } from 'hono'
 import { z } from 'zod'
+import type { Authenticator, Identity } from './auth.ts'
+import { createDisabledAuthenticator } from './auth.ts'
 import type { SendServerConfig } from './config.ts'
 import type { EmailSender, SenderPreflight } from './emailSender.ts'
 
@@ -42,11 +44,19 @@ export type SendRequest = z.infer<typeof sendRequestSchema>
  */
 export type HostPolicy = 'loopback' | 'same-origin'
 
+/** Hono context values this app sets. `identity` is set by the auth middleware. */
+type Variables = { identity: Identity }
+
 export interface AppDependencies {
   readonly config: SendServerConfig
   readonly sender: EmailSender | null
   /** Defaults to the strict loopback rule so a forgotten option never widens access. */
   readonly hostPolicy?: HostPolicy
+  /**
+   * Who the caller is. Defaults to refusing everything, so an adapter that
+   * forgets to pass one fails closed instead of serving an open API.
+   */
+  readonly authenticator?: Authenticator
   /** Injectable clock for tests. */
   readonly now?: () => number
 }
@@ -58,9 +68,12 @@ export function createApp({
   config,
   sender,
   hostPolicy = 'loopback',
+  authenticator = createDisabledAuthenticator(
+    'No authenticator was configured for this server, so every API request is refused.',
+  ),
   now = () => Date.now(),
 }: AppDependencies) {
-  const app = new Hono()
+  const app = new Hono<{ Variables: Variables }>()
   const limiter = createRateLimiter(config.enabled ? config.rateLimitPerMinute : 0, now)
   const preflight = createPreflightCache(config, sender, now)
 
@@ -72,13 +85,29 @@ export function createApp({
     await next()
   })
 
+  // Every /api/* route needs a caller we can name. In production that proof is
+  // a verified Cloudflare Access JWT; locally it is a fixed developer identity.
+  // This runs after the Host/Origin check so an unauthenticated cross-site
+  // request is still refused for the more specific reason.
+  app.use('/api/*', async (c, next) => {
+    const result = await authenticator.authenticate(c.req.raw.headers)
+    if (!result.ok) {
+      return c.json({ status: 'error', code: 'unauthenticated', message: result.reason }, 401)
+    }
+    c.set('identity', result.identity)
+    await next()
+  })
+
   app.get('/api/send-test/status', async (c) => {
+    // The signed-in email is echoed back so the UI can show who Access let in.
+    const user = c.get('identity').email
     if (!config.enabled) {
-      return c.json({ enabled: false as const, provider: 'amazon-ses', reason: config.reason })
+      return c.json({ enabled: false as const, provider: 'amazon-ses', reason: config.reason, user })
     }
     return c.json({
       enabled: true as const,
       provider: 'amazon-ses',
+      user,
       mode: sender?.mode ?? 'dry-run',
       from: config.from,
       allowedRecipients: config.allowedRecipients,
@@ -173,8 +202,9 @@ export function createApp({
       : `${TEST_SUBJECT_PREFIX}${request.subject}`
     try {
       const receipt = await sender.send({ from: config.from, to, subject, html: request.html })
+      // The requester is logged so a surprising send can be traced to a person.
       console.log(
-        `[send-test] ${sender.mode} "${subject}" -> ${to} (template ${request.templateId}) message ${receipt.messageId}`,
+        `[send-test] ${sender.mode} "${subject}" -> ${to} by ${c.get('identity').email} (template ${request.templateId}) message ${receipt.messageId}`,
       )
       return c.json({
         status: 'sent',
