@@ -4,8 +4,19 @@
  */
 import { serve } from '@hono/node-server'
 import { createApp } from './app.ts'
+import type { AuthConfig } from './auth.ts'
+import { createAuthenticator, loadAuthConfig } from './auth.ts'
 import { ConfigError, loadConfig } from './config.ts'
 import { createSender } from './createSender.ts'
+
+/**
+ * This adapter binds to 127.0.0.1 and keeps the loopback Host/Origin rule, so
+ * the only caller it can ever have is someone already on this machine. Naming
+ * that caller is therefore a formality rather than a security boundary, and a
+ * default identity keeps `npm run server` working with no extra setup. Set
+ * STUDIO_DEV_IDENTITY in .env to use your own address instead.
+ */
+const DEFAULT_LOCAL_IDENTITY = 'developer@localhost'
 
 function main(): void {
   let config
@@ -21,12 +32,24 @@ function main(): void {
     throw error
   }
 
-  const app = createApp({ config, sender, hostPolicy: 'loopback' })
+  const authConfig = loadAuthConfig({
+    ...process.env,
+    STUDIO_DEV_IDENTITY: process.env.STUDIO_DEV_IDENTITY ?? DEFAULT_LOCAL_IDENTITY,
+  })
+  const authenticator = createAuthenticator(authConfig)
+
+  const app = createApp({
+    config,
+    sender,
+    hostPolicy: 'loopback',
+    authenticator,
+    passwordGate: authConfig.mode === 'password' ? { password: authConfig.password } : undefined,
+  })
   const server = serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
     const base = `http://127.0.0.1:${info.port}`
     if (config.enabled && sender) {
       console.log(
-        `Send server listening on ${base}\n  mode: ${sender.mode}\n  region: ${config.region}\n  from: ${config.from}\n  allowed recipients: ${config.allowedRecipients.join(', ')}\n  rate limit: ${config.rateLimitPerMinute}/min`,
+        `Send server listening on ${base}\n  mode: ${sender.mode}\n  identity: ${describeAuth(authConfig)}\n  region: ${config.region}\n  from: ${config.from}\n  allowed recipients: ${config.allowedRecipients.join(', ')}\n  rate limit: ${config.rateLimitPerMinute}/min`,
       )
       void sender.preflight(config.from).then((result) => {
         console.log(`  preflight: ${result.ok ? 'OK' : 'PROBLEM'} - ${result.message}`)
@@ -45,6 +68,20 @@ function main(): void {
     }
     throw error
   })
+}
+
+/** One line for the startup banner, so it is obvious who requests will act as. */
+function describeAuth(authConfig: AuthConfig): string {
+  switch (authConfig.mode) {
+    case 'cloudflare-access':
+      return `Cloudflare Access (${authConfig.teamDomain})`
+    case 'password':
+      return 'shared password (STUDIO_PASSWORD)'
+    case 'developer':
+      return `${authConfig.email} (local developer identity)`
+    case 'none':
+      return `NONE - the API will refuse every request (${authConfig.reason})`
+  }
 }
 
 main()
