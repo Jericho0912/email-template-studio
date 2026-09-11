@@ -21,7 +21,8 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'CLOUDFLARE_ENV=e2e npm run build && npx vite preview --port 4173 --strictPort',
+    command:
+      'CLOUDFLARE_ENV=e2e npm run build && rm -f dist/email_template_studio/.dev.vars && npx vite preview --port 4173 --strictPort',
     url: 'http://localhost:4173/api/send-test/status',
     // Never reuse: a stray preview could be a build with different variables.
     reuseExistingServer: false,

@@ -206,6 +206,29 @@ test('device toggle changes the preview viewport', async ({ page }) => {
   await expect(page.getByRole('radio', { name: 'Mobile preview' })).toHaveAttribute('aria-checked', 'true')
 })
 
+test('API keys page generates a mock key and adds a webhook endpoint', async ({ page }) => {
+  await page.getByRole('button', { name: 'API Keys' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'API Keys & Integration' })).toBeVisible()
+  await expect(page.getByText('Welcome emails sandbox')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Generate key' }).click()
+  const keyDialog = page.getByRole('dialog', { name: 'Generate API key' })
+  await keyDialog.getByRole('button', { name: 'Generate key' }).click()
+  await expect(keyDialog.getByText(/^st_local_[A-Za-z0-9_-]{22}$/)).toBeVisible()
+  await expect(keyDialog.getByRole('button', { name: 'Done' })).toBeDisabled()
+  await keyDialog.getByRole('checkbox', { name: /I copied this key/ }).click()
+  await keyDialog.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByText('Transactional send key')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add webhook' }).click()
+  const webhookDialog = page.getByRole('dialog', { name: 'Add webhook endpoint' })
+  await webhookDialog.getByLabel('Name').fill('Product event sink')
+  await webhookDialog.getByLabel('Endpoint URL').fill('https://hooks.example.test/events')
+  await webhookDialog.getByRole('button', { name: 'opened' }).click()
+  await webhookDialog.getByRole('button', { name: 'Add endpoint' }).click()
+  await expect(page.getByText('Product event sink')).toBeVisible()
+})
+
 test('send test email goes through the API in dry-run mode and publish stays simulated', async ({ page }) => {
   await expect(previewBody(page)).toContainText('Welcome, Ada', { timeout: 15_000 })
 

@@ -12,7 +12,7 @@ import type { EmailProvider } from '@/infrastructure/providers/emailProvider'
 import type { TemplateRenderer } from '@/infrastructure/render/renderClient'
 import type { StudioSessionStore } from '@/infrastructure/session/sessionStore'
 import { AppFooter } from '@/presentation/layout/AppFooter'
-import { GlobalHeader, type WorkerHealth } from '@/presentation/layout/GlobalHeader'
+import { GlobalHeader, type ProductPage, type WorkerHealth } from '@/presentation/layout/GlobalHeader'
 import { useRenderPreview } from '@/presentation/hooks/useRenderPreview'
 import { useStudio } from '@/presentation/hooks/useStudio'
 import { DiagnosticsPanel } from './DiagnosticsPanel'
@@ -32,6 +32,8 @@ export interface StudioPageProps {
   workspace: string
   environment: string
   version: string
+  activePage: ProductPage
+  onNavigate: (page: ProductPage) => void
 }
 
 export function StudioPage({
@@ -42,6 +44,8 @@ export function StudioPage({
   workspace,
   environment,
   version,
+  activePage,
+  onNavigate,
 }: StudioPageProps) {
   const studio = useStudio({ templates, store })
   const { template, draft, sourceDirty, payloadDirty, state, actions } = studio
@@ -87,6 +91,8 @@ export function StudioPage({
         environment={environment}
         workerHealth={workerHealth}
         lastRenderMs={lastRenderMs}
+        activePage={activePage}
+        onNavigate={onNavigate}
       />
 
       <main className="mx-auto w-full max-w-[1440px] flex-1 space-y-6 px-6 py-6">
